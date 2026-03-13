@@ -1,0 +1,22 @@
+info:
+  name: Stop Focus Session
+  type: http
+  seq: 7
+
+http:
+  method: POST
+  url: http://localhost:3000/api/focus
+  body:
+    type: json
+    data: |-
+      {
+        "action": "stop",
+        "session_id": "2d4156f9-66ff-4cbd-98cb-3e9e595b198b"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

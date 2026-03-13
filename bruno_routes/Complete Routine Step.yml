@@ -1,0 +1,24 @@
+info:
+  name: Complete Routine Step
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: http://localhost:3000/api/routines
+  body:
+    type: json
+    data: |-
+      {
+        "action": "step-complete",
+        "run_id": "dc903b8e-29da-42eb-95a2-e1f464cfd8e2",
+        "routine_id": "71e3df10-64b8-48f3-801e-fdc5054c5ea2",
+        "completed_step_index": 2
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Create Execution Log
+  type: http
+  seq: 9
+
+http:
+  method: POST
+  url: http://localhost:3000/api/execution
+  body:
+    type: json
+    data: |-
+      {
+        "activity_id": "REPLACE_WITH_ACTIVITY_ID",
+        "date": "2026-03-14",
+        "status": "completed",
+        "note": "Finished on time"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

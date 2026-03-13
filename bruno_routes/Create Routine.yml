@@ -1,0 +1,27 @@
+info:
+  name: Create Routine
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: http://localhost:3000/api/routines
+  body:
+    type: json
+    data: |-
+      {
+        "action": "create",
+        "name": "Morning Routine",
+        "steps": [
+          { "name": "Stretch", "duration_seconds": 300, "order_index": 0 },
+          { "name": "Meditate", "duration_seconds": 600, "order_index": 1 },
+          { "name": "Journal", "duration_seconds": 300, "order_index": 2 }
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
