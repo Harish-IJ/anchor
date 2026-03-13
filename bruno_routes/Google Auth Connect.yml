@@ -1,0 +1,21 @@
+info:
+  name: Google Auth - Connect
+  type: http
+  seq: 14
+
+http:
+  method: GET
+  url: http://localhost:3000/api/auth/google
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: false
+  maxRedirects: 0
+
+docs:
+  description: |-
+    Opens Google OAuth consent screen.
+    Open this URL in your BROWSER (not Bruno) to authenticate.
+    After consent, it redirects to /api/auth/google/callback.

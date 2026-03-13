@@ -1,0 +1,22 @@
+info:
+  name: Sync Calendar Events
+  type: http
+  seq: 16
+
+http:
+  method: GET
+  url: http://localhost:3000/api/calendar?start=2026-03-01T00:00:00Z&end=2026-03-31T00:00:00Z
+  params:
+    - name: start
+      value: 2026-03-01T00:00:00Z
+      type: query
+    - name: end
+      value: 2026-03-31T00:00:00Z
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
