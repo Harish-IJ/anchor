@@ -1,0 +1,22 @@
+info:
+  name: Register Notion Source
+  type: http
+  seq: 18
+
+http:
+  method: POST
+  url: http://localhost:3000/api/notion/sources
+  body:
+    type: json
+    data: |-
+      {
+        "database_id": "322df5340034807a9b72ef3c25b164f9",
+        "name": "Tasks"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
