@@ -1,7 +1,7 @@
 info:
   name: Sync Notion
   type: http
-  seq: 20
+  seq: 19
 
 http:
   method: POST
