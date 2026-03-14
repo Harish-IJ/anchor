@@ -10,17 +10,17 @@ http:
     type: json
     data: |-
       {
-        "notion_item_id": "REPLACE_WITH_NOTION_ITEM_ID",
+        "notion_item_id": "2c0d8395-143a-495e-a671-aad50a4b362f",
         "duration_minutes": 45
       }
   auth: inherit
-
-docs: |
-  Run 'List Notion Items' first to grab a valid UUID.
-  This converts the item into an actionable Time Block in the activities table.
 
 settings:
   encodeUrl: true
   timeout: 0
   followRedirects: true
   maxRedirects: 5
+
+docs: |
+  Run 'List Notion Items' first to grab a valid UUID.
+  This converts the item into an actionable Time Block in the activities table.

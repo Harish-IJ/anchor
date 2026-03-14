@@ -132,10 +132,13 @@ graph TB
 anchor/
 ├── frontend/
 │   ├── app/api/
+│   │   ├── activities/           # Universal event container (3 routes)
+│   │   ├── auth/gmail/           # Gmail OAuth (3 routes)
 │   │   ├── auth/google/          # OAuth flow (3 routes)
 │   │   ├── calendar/             # Google Calendar sync
 │   │   ├── execution/            # Execution tracking
 │   │   ├── focus/                # Focus sessions
+│   │   ├── gmail/                # Gmail sync & items (2 routes)
 │   │   ├── health/               # Health check
 │   │   ├── notion/               # Notion integration (4 routes)
 │   │   ├── reports/              # Weekly + habit reports
@@ -144,6 +147,7 @@ anchor/
 │   │   ├── api-utils.ts          # successResponse / errorResponse
 │   │   ├── calendar.ts           # Google OAuth + Calendar helpers
 │   │   ├── database.ts           # Supabase client
+│   │   ├── gmail.ts              # Gmail multi-account service
 │   │   ├── notion.ts             # Notion multi-workspace service
 │   │   └── types.ts              # Shared TypeScript interfaces
 │   ├── services/
@@ -153,11 +157,13 @@ anchor/
 │   │   └── routineService.ts     # Routine lifecycle
 │   ├── database/
 │   │   ├── schema.sql            # Core 6 tables
+│   │   ├── upgrade_activities.sql# Universal Event Container migration
 │   │   ├── add_oauth_tokens.sql  # Google tokens
 │   │   ├── add_notion_tables.sql # Notion sources + items
-│   │   └── add_notion_api_key.sql# Multi-workspace support
+│   │   ├── add_notion_api_key.sql# Multi-workspace support
+│   │   └── add_gmail_tables.sql  # Gmail multi-account tables
 │   └── .env.local                # All secrets
-├── bruno_routes/                 # 23 test routes
+├── bruno_routes/                 # 31 test routes
 └── project_context.md            # Project spec
 ```
 
@@ -247,6 +253,69 @@ anchor/
 | 8 | **Automated tests** with Vitest for service layer functions | Low | Medium |
 | 9 | **Error logging** to Supabase or a log table for production debugging | Low | Medium |
 | 10 | **Webhook/cron sync** — auto-sync calendar every 15 min instead of manual | Low | High |
+
+---
+
+## 🧩 Activity Mapping Architecture (Universal Event Container)
+
+The core innovation of the backend is the `activities` schema, acting as a Universal Event Container.
+
+```mermaid
+graph TD
+    subgraph Data Sources
+        C[Google Calendar]
+        N[Notion]
+        G[Gmail]
+    end
+
+    subgraph Ingestion Layer
+        API_C[/api/calendar/]
+        API_N[/api/notion/sync]
+        API_G[/api/gmail/sync]
+    end
+
+    subgraph Raw Source Tables
+        DB_C[(N/A)]
+        DB_N[(notion_items)]
+        DB_G[(email_items)]
+    end
+
+    subgraph Mapping Layer
+        MAP_C[lib/calendar.ts sync()]
+        MAP_N[POST /api/activities/from-notion]
+        MAP_G[POST /api/activities/from-email]
+    end
+
+    subgraph Universal Event Container
+        ACT[(activities)]
+        SRC[(activity_sources)]
+    end
+
+    C --> API_C
+    N --> API_N
+    G --> API_G
+
+    API_N --> DB_N
+    API_G --> DB_G
+
+    API_C --> MAP_C
+    DB_N --> MAP_N
+    DB_G --> MAP_G
+
+    MAP_C --> ACT
+    MAP_N --> ACT
+    MAP_G --> ACT
+
+    MAP_C -.-> SRC
+    MAP_N -.-> SRC
+    MAP_G -.-> SRC
+
+    ACT --- SRC
+```
+
+- Data from external sources flows into raw/structured tables (`notion_items`, `email_items`). Google Calendar writes directly to `activities` since its format heavily overlaps.
+- The **Mapping Layer** endpoints extract specific items from the raw layer and transform them into actionable items in the `activities` table.
+- A linker table `activity_sources` manages a many-to-many relationship, allowing multiple external items (e.g., an email and a Notion doc) to be linked to a single Activity.
 
 ---
 

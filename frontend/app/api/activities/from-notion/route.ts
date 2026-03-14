@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       .from("notion_items")
       .select(`
         *,
-        notion_sources ( workspace_name )
+        notion_sources ( name )
       `)
       .eq("id", notion_item_id)
       .single();
@@ -43,13 +43,13 @@ export async function POST(req: NextRequest) {
       description: `Imported from Notion`,
       source: "notion",
       external_id: notionItem.notion_page_id,
-      source_account: notionItem.notion_sources?.workspace_name || null,
-      source_url: notionItem.url,
+      source_account: notionItem.notion_sources?.name || null,
+      source_url: notionItem.notion_url,
       scheduled_start: scheduled_start || null,
       duration_minutes: duration_minutes || null,
-      priority: notionItem.priority,
+      priority: null, 
       metadata: {
-        notion_properties: notionItem.properties_json // Embed all custom properties
+        notion_properties: notionItem.properties 
       }
     };
 
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       console.error("Warning: Failed to create activity_sources link", linkError);
     }
 
-    return successResponse<Activity>(activity, "Created activity from Notion");
+    return successResponse<Activity>(activity, 201);
   } catch (error: unknown) {
     console.error("Error creating activity from notion:", error);
     return errorResponse(error instanceof Error ? error.message : "Error creating activity from notion", 500);

@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
-    return successResponse<Activity>(activity, "Activity created successfully");
+    return successResponse<Activity>(activity, 201);
   } catch (error: unknown) {
     console.error("Error creating activity:", error);
     return errorResponse(error instanceof Error ? error.message : "Error creating activity", 500);

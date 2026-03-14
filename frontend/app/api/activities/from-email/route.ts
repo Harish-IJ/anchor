@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       duration_minutes: duration_minutes || 15,
       metadata: {
         sender: emailItem.sender,
-        labels: emailItem.labels,
+        labels: emailItem.gmail_labels,
         received_at: emailItem.received_at
       }
     };
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       console.error("Warning: Failed to create activity_sources link", linkError);
     }
 
-    return successResponse<Activity>(activity, "Created activity from Email");
+    return successResponse<Activity>(activity, 201);
   } catch (error: unknown) {
     console.error("Error creating activity from email:", error);
     return errorResponse(error instanceof Error ? error.message : "Error creating activity from email", 500);
