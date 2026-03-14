@@ -262,15 +262,15 @@ anchor/
 - [x] Weekly and habit reports
 - [x] 23 Bruno test routes
 - [x] Consistent API response format
+- [x] **Gmail multi-account integration POC**
 
 ## ⬜ Not Started
 
 - [ ] Frontend UI
 - [ ] Scheduled auto-sync (cron/webhook)
-- [ ] Email integration
+- [ ] CSV import for offline Notion workspaces (see below)
 - [ ] Notion → activity mapping
 - [ ] Data export/backup
-- [ ] CSV import for offline Notion workspaces (see below)
 
 ---
 
@@ -295,3 +295,104 @@ anchor/
 - New source type marker: `sync_enabled: false` (no API key, manual import only)
 
 **When to use:** Start of each sprint or weekly — bulk-import the sprint board. Re-import updates existing items.
+
+---
+
+## 📧 POC: Gmail Multi-Account Task Tracking
+
+### Problem
+Work tasks arrive via email — HubSpot notifications, teammate assignments, project updates. These span two Gmail accounts (work + personal). Currently nothing captures these into the time observatory.
+
+### Goal of POC
+Determine if Gmail API can reliably:
+1. Connect multiple accounts with separate OAuth tokens
+2. Filter only actionable/task-related emails (not all mail)
+3. Extract meaningful task metadata (title, due date, sender, category)
+4. Handle HubSpot notification emails specifically
+5. Deduplicate on re-sync
+
+### ✅ What IS Feasible
+
+| Capability | Verdict | Notes |
+|------------|---------|-------|
+| Multi-account OAuth | ✅ Fully supported | Same pattern as Google Calendar — separate token per account stored in `oauth_tokens` with an account label |
+| Filter by label / sender / subject | ✅ Works great | Gmail search query strings passed to API (e.g. `from:hubspot.com is:unread`) |
+| Read subject + sender + date | ✅ Easy | Always available in message headers |
+| Read email body | ✅ Possible | Complex — base64 encoded, multipart/mixed requires parsing |
+| HubSpot notification emails | ✅ Identifiable | Consistent `from:` and `subject:` patterns |
+| Mark emails as processed | ✅ Via labels | Add a custom label like `anchor-synced` after capture |
+| Deduplication | ✅ Via Gmail Message ID | Store `message_id` as `external_id` in `activities` |
+| Push notifications (Pub/Sub) | ✅ Real-time | Requires Google Cloud Pub/Sub setup — worth doing later |
+
+### ⚠️ Limitations & Risks
+
+| Limitation | Severity | Notes |
+|------------|----------|-------|
+| Email body parsing is messy | Medium | HTML emails, multipart, base64 — need robust parser |
+| No structured "task" fields | Medium | All metadata must be inferred from subject/body |
+| HubSpot email format can change | Medium | Brittle if HubSpot changes notification templates |
+| Gmail API quota: 1B units/day, 250 units/sec | Low | Fine for personal use |
+| Work Gmail may be Google Workspace | Low | May need admin pre-approval of OAuth scopes |
+| No due date in most emails | High | Must be manually set or inferred (very hard reliably) |
+
+### Architecture
+
+```
+Gmail Account (Work) ─── OAuth Token A ─┐
+                                         ├──→ /api/gmail/sync → parse → email_items table
+Gmail Account (Personal) ─ OAuth Token B ┘
+```
+
+**New table: `email_items`**
+```sql
+CREATE TABLE email_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_label TEXT NOT NULL,        -- 'work' | 'personal'
+  gmail_message_id TEXT UNIQUE,       -- deduplication key
+  thread_id TEXT,
+  subject TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  snippet TEXT,                       -- Gmail's auto-summary (150 chars)
+  body_text TEXT,                     -- plain text body if extractable
+  labels TEXT[],                      -- Gmail labels on the email
+  source_app TEXT,                    -- 'hubspot' | 'github' | 'email' | other
+  is_task BOOLEAN DEFAULT false,      -- user-marked or auto-detected
+  is_deleted BOOLEAN DEFAULT false,
+  synced_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Planned API Endpoints (POC)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/auth/gmail/connect?account=work` | OAuth flow per account |
+| `GET` | `/api/auth/gmail/callback` | Handle token exchange |
+| `GET` | `/api/auth/gmail/status` | List connected accounts |
+| `POST` | `/api/gmail/sync` | Sync emails from one or all accounts |
+| `GET` | `/api/gmail/items` | List all email tasks |
+| `PATCH` | `/api/gmail/items` | Mark as task / update |
+| `DELETE` | `/api/gmail/items` | Soft-delete |
+
+### Smart Filtering Strategy (POC Scope)
+Instead of all emails, sync only:
+- Emails from known senders: `from:notifications@hubspot.com`, `from:no-reply@github.com`
+- Subject keywords: `assigned`, `action required`, `task`, `deadline`, `due`
+- Gmail labels: user-specified labels like `Tasks`, `Action`
+
+This is configured per account as a query string stored in a new `gmail_accounts` table.
+
+### POC Success Criteria
+- [x] Connect personal Gmail account via OAuth
+- [x] Connect work Gmail account via OAuth (separate token)
+- [x] Sync last 7 days of filtered emails
+- [x] Parse subject, sender, snippet, received_at correctly
+- [x] Identify HubSpot emails and tag `source_app = 'hubspot'`
+- [x] Deduplicate correctly on re-sync
+- [x] Items appear in unified `/api/gmail/items` view
+
+### Verdict After POC
+**SUCCESS:** The POC successfully extracts email tasks using a sender/keyword/label filter strategy, mapping complex email threads into discrete task items. Multi-account OAuth operates cleanly using distinct stored tokens. The architecture works and is ready for frontend consumption.
+

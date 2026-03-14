@@ -1,0 +1,26 @@
+info:
+  name: Sync Gmail
+  type: http
+  seq: 25
+
+http:
+  method: POST
+  url: http://localhost:3000/api/gmail/sync
+  body:
+    type: json
+    data: |-
+      {
+        "account_label": "personal",
+        "max_results": 20
+      }
+  auth: inherit
+
+docs: |
+  Sync emails for one account. Omit account_label to sync all connected accounts.
+  max_results defaults to 50.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
