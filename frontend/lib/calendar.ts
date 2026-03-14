@@ -151,56 +151,80 @@ export async function syncCalendarToActivities(
   for (const event of events) {
     if (!event.id || !event.summary) continue;
 
-    const startTime =
-      event.start?.dateTime || event.start?.date
-        ? new Date(event.start.dateTime || event.start.date!).toISOString()
-        : null;
-    const endTime =
-      event.end?.dateTime || event.end?.date
-        ? new Date(event.end.dateTime || event.end.date!).toISOString()
-        : null;
+    const startTimeStr = event.start?.dateTime || event.start?.date;
+    const endTimeStr = event.end?.dateTime || event.end?.date;
+
+    const startTime = startTimeStr ? new Date(startTimeStr).toISOString() : null;
+    const endTime = endTimeStr ? new Date(endTimeStr).toISOString() : null;
 
     if (!startTime) continue;
+
+    let duration_minutes = null;
+    if (startTime && endTime) {
+      const diffMs = new Date(endTime).getTime() - new Date(startTime).getTime();
+      duration_minutes = Math.round(diffMs / 60000);
+    }
+
+    const activityData = {
+      title: event.summary,
+      description: event.description || null,
+      source: "google_calendar",
+      external_id: event.id,
+      source_account: event.organizer?.email || null,
+      source_url: event.htmlLink || null,
+      scheduled_start: startTime,
+      scheduled_end: endTime,
+      duration_minutes,
+      category: event.organizer?.displayName || null,
+      metadata: {
+        attendees: event.attendees?.map((a) => a.email || null).filter(Boolean) || [],
+        location: event.location || null,
+        status: event.status || null
+      }
+    };
 
     // Check if activity already exists for this event
     const { data: existing } = await supabase
       .from("activities")
       .select("id")
-      .eq("external_source", "google_calendar")
+      .eq("source", "google_calendar")
       .eq("external_id", event.id)
       .single();
+
+    let savedActivity = null;
 
     if (existing) {
       // Update existing activity
       const { data, error } = await supabase
         .from("activities")
-        .update({
-          title: event.summary,
-          start_time: startTime,
-          end_time: endTime,
-          category: event.organizer?.displayName || null,
-        })
+        .update(activityData)
         .eq("id", existing.id)
         .select()
         .single();
 
-      if (!error && data) activities.push(data as Activity);
+      if (!error && data) savedActivity = data as Activity;
     } else {
       // Insert new activity
       const { data, error } = await supabase
         .from("activities")
-        .insert({
-          external_source: "google_calendar",
-          external_id: event.id,
-          title: event.summary,
-          start_time: startTime,
-          end_time: endTime,
-          category: event.organizer?.displayName || null,
-        })
+        .insert(activityData)
         .select()
         .single();
 
-      if (!error && data) activities.push(data as Activity);
+      if (!error && data) savedActivity = data as Activity;
+    }
+
+    if (savedActivity) {
+      activities.push(savedActivity);
+      
+      // Ensure the linking table entry exists (upsert)
+      await supabase
+        .from("activity_sources")
+        .upsert({
+          activity_id: savedActivity.id,
+          source: "google_calendar",
+          external_id: event.id
+        }, { onConflict: "source,external_id" });
     }
   }
 

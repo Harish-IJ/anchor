@@ -1,0 +1,26 @@
+info:
+  name: Convert Notion Task to Activity
+  type: http
+  seq: 32
+
+http:
+  method: POST
+  url: http://localhost:3000/api/activities/from-notion
+  body:
+    type: json
+    data: |-
+      {
+        "notion_item_id": "REPLACE_WITH_NOTION_ITEM_ID",
+        "duration_minutes": 45
+      }
+  auth: inherit
+
+docs: |
+  Run 'List Notion Items' first to grab a valid UUID.
+  This converts the item into an actionable Time Block in the activities table.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

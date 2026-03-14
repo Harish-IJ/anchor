@@ -4,16 +4,32 @@
 
 // ─── Activity ────────────────────────────────────────────────
 
-export type ExternalSource = "google_calendar" | "notion" | "manual" | "email";
-
 export interface Activity {
   id: string;
-  external_source: ExternalSource;
-  external_id: string | null;
   title: string;
-  start_time: string;
-  end_time: string | null;
+  description: string | null;
+  source: string;              // e.g. 'google_calendar', 'notion', 'gmail', 'manual'
+  external_id: string | null;
+  source_account: string | null;
+  source_url: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  duration_minutes: number | null;
+  status: 'planned' | 'in_progress' | 'completed' | 'skipped';
+  completed_at: string | null;
   category: string | null;
+  priority: number | null;
+  tags: string[] | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivitySourceLink {
+  id: string;
+  activity_id: string;
+  source: string;
+  external_id: string;
   created_at: string;
 }
 

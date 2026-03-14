@@ -53,7 +53,8 @@ graph TB
 
 | Table | Purpose | Rows/Indexes |
 |-------|---------|-------------|
-| `activities` | Time-bound activities from any source | 3 indexes |
+| `activities` | The Universal Event Container — time-bound actions | 3 indexes |
+| `activity_sources`| Linking table mapping an activity to one or more external sources | 1 index |
 | `execution_logs` | Records whether planned blocks were executed | 2 indexes |
 | `focus_sessions` | Pomodoro-style timed sessions | 2 indexes |
 | `routine_definitions` | Structured routine templates | — |
@@ -63,8 +64,8 @@ graph TB
 | `notion_sources` | Registered Notion databases with per-source API keys | 1 index |
 | `notion_items` | Synced Notion pages with full JSONB properties | 3 indexes |
 
-**Total indexes:** 14  
-**SQL migration files:** 4 ([schema.sql](file:///d:/git_repos/my_repos/anchor/frontend/database/schema.sql), [add_oauth_tokens.sql](file:///d:/git_repos/my_repos/anchor/frontend/database/add_oauth_tokens.sql), [add_notion_tables.sql](file:///d:/git_repos/my_repos/anchor/frontend/database/add_notion_tables.sql), [add_notion_api_key.sql](file:///d:/git_repos/my_repos/anchor/frontend/database/add_notion_api_key.sql))
+**Total indexes:** 15  
+**SQL migration files:** 5 (incl. `upgrade_activities.sql`)
 
 ---
 
@@ -95,11 +96,15 @@ graph TB
 | [PATCH](file:///d:/git_repos/my_repos/anchor/frontend/app/api/notion/items/route.ts#24-46) | `/api/notion/items` | ✅ Two-way sync to Notion |
 | [DELETE](file:///d:/git_repos/my_repos/anchor/frontend/app/api/notion/sources/route.ts#43-65) | `/api/notion/items` | ✅ Soft-delete + optional Notion archive |
 
-### Execution Tracking
+### Execution Tracking & Activities (Universal Event Container)
 | Method | Endpoint | Status |
 |--------|----------|--------|
-| [POST](file:///d:/git_repos/my_repos/anchor/frontend/app/api/focus/route.ts#9-47) | `/api/execution` | ✅ Record log |
-| [GET](file:///d:/git_repos/my_repos/anchor/frontend/app/api/execution/route.ts#36-58) | `/api/execution?date=` | ✅ Fetch by date |
+| `GET` | `/api/activities` | ✅ List activities / Time Blocks |
+| `POST` | `/api/activities` | ✅ Create manual activity |
+| `POST` | `/api/activities/from-notion` | ✅ Convert Notion item to activity |
+| `POST` | `/api/activities/from-email` | ✅ Convert Gmail item to activity |
+| `POST` | `/api/execution` | ✅ Record log |
+| `GET` | `/api/execution?date=` | ✅ Fetch by date |
 
 ### Focus Sessions
 | Method | Endpoint | Status |
@@ -160,7 +165,7 @@ anchor/
 
 ## 🧪 Test Coverage
 
-**23 Bruno routes** covering every endpoint. All tested and verified working.
+**27 Bruno routes** covering every endpoint. All tested and verified working.
 
 ---
 
@@ -260,16 +265,18 @@ anchor/
 - [x] Focus session start/stop
 - [x] Routine lifecycle (create → start → step-complete)
 - [x] Weekly and habit reports
-- [x] 23 Bruno test routes
+- [x] Weekly and habit reports
+- [x] 27 Bruno test routes
 - [x] Consistent API response format
-- [x] **Gmail multi-account integration POC**
+- [x] Gmail multi-account integration POC
+- [x] **Universal Event Container (Activity Mapping Layer)**
 
 ## ⬜ Not Started
 
 - [ ] Frontend UI
 - [ ] Scheduled auto-sync (cron/webhook)
-- [ ] CSV import for offline Notion workspaces (see below)
-- [ ] Notion → activity mapping
+- [ ] Active Focus Session endpoint
+- [ ] CSV import for offline Notion workspaces
 - [ ] Data export/backup
 
 ---

@@ -1,0 +1,23 @@
+info:
+  name: List Activities
+  type: http
+  seq: 30
+
+http:
+  method: GET
+  url: http://localhost:3000/api/activities
+  headers: {}
+  auth: inherit
+
+docs: |
+  List all your Actionable Time Blocks.
+  Optional filters:
+  ?source=notion
+  ?status=planned
+  ?date=2026-03-15
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
