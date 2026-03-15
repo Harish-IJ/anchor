@@ -17,10 +17,16 @@ export async function POST(req: NextRequest) {
     const contentType = req.headers.get("content-type") || "";
     let fileContent = "";
     let isZip = false;
+    let filtersJson = req.nextUrl.searchParams.get("filters");
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
       const file = formData.get("file") as Blob | null;
+      
+      const formFilters = formData.get("filters");
+      if (formFilters && typeof formFilters === "string") {
+        filtersJson = formFilters;
+      }
 
       if (!file) {
         return errorResponse("No file uploaded", 400);
@@ -108,6 +114,47 @@ export async function POST(req: NextRequest) {
 
     if (rows.length === 0) {
       return errorResponse("CSV files are empty or missing headers", 400);
+    }
+
+    // Apply Dynamic Filters If Provided
+    if (filtersJson) {
+      let filters: Record<string, string[]> = {};
+      try {
+        filters = JSON.parse(filtersJson);
+      } catch (e) {
+        return errorResponse("Invalid filters format. Must be a JSON object mapping column names to arrays of acceptable values (e.g. {\"Task owner\": [\"Harish I J\"]}).", 400);
+      }
+
+      if (Object.keys(filters).length > 0) {
+        rows = rows.filter((row) => {
+          // OR Logic: Keep row if AT LEAST ONE of the conditions matches.
+          // This allows users to match themselves across multiple assignment fields (Owner, Participant, etc)
+          let matchesAny = false;
+          
+          for (const [filterKey, filterValues] of Object.entries(filters)) {
+            const acceptableValues = Array.isArray(filterValues) ? filterValues : [filterValues];
+            const rowValue = row[filterKey];
+            
+            if (rowValue) {
+              const hasMatch = acceptableValues.some(val => 
+                rowValue.toString().toLowerCase().includes(val.toString().toLowerCase())
+              );
+              if (hasMatch) {
+                matchesAny = true;
+                break;
+              }
+            }
+          }
+          
+          return matchesAny;
+        });
+
+        console.log(`Rows remaining after dynamic filtering: ${rows.length}`);
+        
+        if (rows.length === 0) {
+          return errorResponse("No rows matched the provided filters", 400);
+        }
+      }
     }
 
     // 3. Ensure Manual Source Exists
@@ -203,5 +250,44 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     console.error("Error importing CSV:", error);
     return errorResponse(error instanceof Error ? error.message : "Error importing CSV", 500);
+  }
+}
+
+/**
+ * DELETE /api/notion/items/import
+ * Reverts the manual CSV import by deleting all items associated with the manual source.
+ */
+export async function DELETE() {
+  try {
+    // 1. Find the Manual Source
+    const { data: source, error: sourceError } = await supabase
+      .from("notion_sources")
+      .select("id")
+      .eq("database_id", MANUAL_SOURCE_DB_ID)
+      .single();
+
+    if (sourceError || !source) {
+      return successResponse({ message: "No manual import source found to revert." });
+    }
+
+    // 2. Delete all items belonging to this source
+    // Since we don't have batch IDs, this clears ALL manually imported CSV items.
+    const { error: deleteError, count } = await supabase
+      .from("notion_items")
+      .delete({ count: "exact" })
+      .eq("source_id", source.id);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    return successResponse({ 
+      reverted_count: count || 0,
+      message: `Successfully reverted import. ${count || 0} items deleted.` 
+    });
+
+  } catch (error: unknown) {
+    console.error("Error reverting CSV import:", error);
+    return errorResponse(error instanceof Error ? error.message : "Error reverting CSV import", 500);
   }
 }

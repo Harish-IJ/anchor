@@ -5,7 +5,11 @@ info:
 
 http:
   method: POST
-  url: http://localhost:3000/api/notion/items/import
+  url: 'http://localhost:3000/api/notion/items/import?filters={"Task participants": ["Harish I J"], "Collaborators": ["Harish I J"], "Task owner": ["Harish I J"]}'
+  params:
+    - name: filters
+      value: '{"Task participants": ["Harish I J"], "Collaborators": ["Harish I J"], "Task owner": ["Harish I J"]}'
+      type: query
   body:
     type: file
     data:
