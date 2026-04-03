@@ -66,6 +66,9 @@ export async function POST(req: NextRequest) {
         return errorResponse("Payload exceeds size limit.", 413);
       }
       const arrayBuffer = await req.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_UNZIPPED_SIZE) {
+        return errorResponse("Payload exceeds size limit.", 413);
+      }
       
       // We can infer if it's a ZIP by checking the magic number or if content-type says zip
       // Magic number for ZIP is 50 4B 03 04 (PK\x03\x04)
@@ -201,7 +204,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (sourceError) {
-      throw sourceError;
+      return errorResponse(`Failed to query manual source: ${sourceError.message}`, 500);
     }
 
     let source = initialSource;
@@ -242,11 +245,11 @@ export async function POST(req: NextRequest) {
       
       let pageId = "";
       if (idKey && row[idKey] && row[idKey].trim().length > 0) {
-        pageId = `csv-id-${row[idKey].trim()}`;
+        pageId = `csv-id-${row[idKey].trim()}-${sourceId}`;
       } else {
         // Fallback: use the raw title + hash as part of the unique key to prevent collisions
         const hash = crypto.createHash('sha256').update(JSON.stringify(row)).digest('hex').substring(0, 8);
-        pageId = `csv-fallback-${title}-${hash}`;
+        pageId = `csv-fallback-${title}-${hash}-${sourceId}`;
       }
 
       itemsToUpsert.push({
@@ -262,7 +265,8 @@ export async function POST(req: NextRequest) {
     // 5. Deduplicate and upsert items in chunks
     const uniqueItemsMap = new Map();
     for (const item of itemsToUpsert) {
-      uniqueItemsMap.set(item.notion_page_id, item);
+      const dedupeKey = `${item.source_id}-${item.notion_page_id}`;
+      uniqueItemsMap.set(dedupeKey, item);
     }
     const deduplicatedItems = Array.from(uniqueItemsMap.values());
 
@@ -274,7 +278,7 @@ export async function POST(req: NextRequest) {
       const { error: upsertError } = await supabase
         .from("notion_items")
         .upsert(chunk, { 
-          onConflict: "notion_page_id",
+          onConflict: "notion_page_id,source_id",
           ignoreDuplicates: false 
         });
 
@@ -310,7 +314,10 @@ export async function DELETE(req: NextRequest) {
       .eq("database_id", sourceKey)
       .maybeSingle();
 
-    if (sourceError || !source) {
+    if (sourceError) {
+      return errorResponse(`Failed to query manual source: ${sourceError.message}`, 500);
+    }
+    if (!source) {
       return successResponse({ message: "No manual import source found to revert." });
     }
 

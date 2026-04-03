@@ -145,13 +145,19 @@ export async function syncSource(sourceId: string) {
 
   if (srcErr || !source) throw new Error("Source not found");
 
-  // Rate Limiting: Minimum 60 seconds between syncs
+  // Rate Limiting & Leasing: Minimum 60 seconds between syncs
   if (source.last_synced_at) {
     const lastSync = new Date(source.last_synced_at).getTime();
     if (Date.now() - lastSync < 60000) {
       throw new Error("Rate limit exceeded. Minimum 60 seconds between Notion syncs for this source.");
     }
   }
+
+  // Acquire lease by updating last_synced_at immediately
+  await supabase
+    .from("notion_sources")
+    .update({ last_synced_at: new Date().toISOString() })
+    .eq("id", sourceId);
 
   const allPages: Array<Record<string, unknown>> = [];
   let hasMore = true;

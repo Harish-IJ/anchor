@@ -61,14 +61,15 @@ export function getGmailAuthUrl(accountLabel: string) {
     ],
     prompt: "select_account consent", // Force account picker + consent always
     include_granted_scopes: false,    // Don't merge with previously granted scopes
-    state: accountLabel,
+    state: encryptToken(accountLabel), // Securely sign/encrypt accountLabel
   });
 }
 
 /**
  * Exchange code for tokens and store/update the gmail_accounts row.
  */
-export async function exchangeGmailCode(code: string, accountLabel: string) {
+export async function exchangeGmailCode(code: string, encodedAccountLabel: string) {
+  const accountLabel = decryptToken(encodedAccountLabel);
   const oauth2Client = createGmailOAuth2Client();
   const { tokens } = await oauth2Client.getToken({ code, redirect_uri: GMAIL_REDIRECT_URI });
 
@@ -252,7 +253,13 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
   });
 
   const messages = listRes.data.messages ?? [];
-  if (messages.length === 0) return { synced: 0, skipped: 0, items: [] };
+  if (messages.length === 0) {
+    await supabase
+      .from("gmail_accounts")
+      .update({ last_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("account_label", accountLabel);
+    return { synced: 0, skipped: 0, items: [] };
+  }
 
   // Batch dedup: fetch all known message IDs in one query
   const incomingIds = messages.map((m) => m.id!).filter(Boolean);
@@ -270,58 +277,67 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
 
   for (const msg of newMessages) {
     if (!msg.id) continue;
+    
+    try {
+      const msgRes = await gmail.users.messages.get({
+        userId: "me",
+        id: msg.id,
+        format: "full",
+      });
 
-    const msgRes = await gmail.users.messages.get({
-      userId: "me",
-      id: msg.id,
-      format: "full",
-    });
+      const message = msgRes.data;
+      const headers = message.payload?.headers ?? [];
 
-    const message = msgRes.data;
-    const headers = message.payload?.headers ?? [];
+      const getHeader = (name: string) =>
+        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 
-    const getHeader = (name: string) =>
-      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+      const subject = getHeader("Subject") || "(no subject)";
+      const rawSender = getHeader("From");
+      const { name: senderName, email: senderEmail } = parseSender(rawSender);
+      const dateStr = getHeader("Date");
+      let receivedAt = new Date().toISOString();
+      if (dateStr) {
+        const pd = new Date(dateStr);
+        if (!isNaN(pd.getTime())) receivedAt = pd.toISOString();
+      }
+      
+      const snippet = message.snippet ?? null;
+      const threadId = message.threadId ?? null;
+      const gmailLabels = message.labelIds ?? [];
 
-    const subject = getHeader("Subject") || "(no subject)";
-    const rawSender = getHeader("From");
-    const { name: senderName, email: senderEmail } = parseSender(rawSender);
-    const dateStr = getHeader("Date");
-    const receivedAt = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
-    const snippet = message.snippet ?? null;
-    const threadId = message.threadId ?? null;
-    const gmailLabels = message.labelIds ?? [];
+      const bodyText = message.payload
+        ? extractBodyText(message.payload as Record<string, unknown>)
+        : null;
 
-    const bodyText = message.payload
-      ? extractBodyText(message.payload as Record<string, unknown>)
-      : null;
+      const sourceApp = detectSourceApp(senderEmail || rawSender);
+      const isTask = detectIsTask(subject, snippet ?? "");
 
-    const sourceApp = detectSourceApp(senderEmail || rawSender);
-    const isTask = detectIsTask(subject, snippet ?? "");
-
-    insertPayload.push({
-      account_id: account.id,
-      account_label: accountLabel,
-      gmail_message_id: msg.id,
-      thread_id: threadId,
-      subject,
-      sender: senderName || rawSender,
-      sender_email: senderEmail ?? null,
-      received_at: receivedAt,
-      snippet,
-      body_text: bodyText,
-      gmail_labels: gmailLabels,
-      source_app: sourceApp,
-      is_task: isTask,
-    });
+      insertPayload.push({
+        account_id: account.id,
+        account_label: accountLabel,
+        gmail_message_id: msg.id,
+        thread_id: threadId,
+        subject,
+        sender: senderName || rawSender,
+        sender_email: senderEmail ?? null,
+        received_at: receivedAt,
+        snippet,
+        body_text: bodyText,
+        gmail_labels: gmailLabels,
+        source_app: sourceApp,
+        is_task: isTask,
+      });
+    } catch (e) {
+      console.error(`Error parsing message ${msg.id}:`, e);
+    }
   }
 
-  // Batch insert all new emails in one query
+  // Batch insert all new emails in one query with conflict-skipping equivalent
   let synced: unknown[] = [];
   if (insertPayload.length > 0) {
     const { data: inserted, error: insertError } = await supabase
       .from("email_items")
-      .insert(insertPayload)
+      .upsert(insertPayload, { onConflict: "gmail_message_id", ignoreDuplicates: true })
       .select();
 
     if (insertError) throw insertError;

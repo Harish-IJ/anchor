@@ -4,14 +4,32 @@
 -- ============================================================
 
 -- 1. Rename time columns
-ALTER TABLE activities RENAME COLUMN start_time TO scheduled_start;
-ALTER TABLE activities RENAME COLUMN end_time TO scheduled_end;
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='start_time') AND
+     NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='scheduled_start') THEN
+      ALTER TABLE activities RENAME COLUMN start_time TO scheduled_start;
+  END IF;
+  
+  IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='end_time') AND
+     NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='scheduled_end') THEN
+      ALTER TABLE activities RENAME COLUMN end_time TO scheduled_end;
+  END IF;
+END $$;
 
 -- 2. Make scheduled_start optional (for backlog tasks)
-ALTER TABLE activities ALTER COLUMN scheduled_start DROP NOT NULL;
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='scheduled_start') THEN
+    ALTER TABLE activities ALTER COLUMN scheduled_start DROP NOT NULL;
+  END IF;
+END $$;
 
 -- 3. Upgrade the source column (drop the rigid check constraint)
-ALTER TABLE activities RENAME COLUMN external_source TO source;
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='external_source') AND
+     NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='activities' AND column_name='source') THEN
+      ALTER TABLE activities RENAME COLUMN external_source TO source;
+  END IF;
+END $$;
 ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_external_source_check;
 
 -- 4. Add new core and metadata fields

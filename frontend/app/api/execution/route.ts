@@ -20,7 +20,18 @@ export async function POST(request: NextRequest) {
       return errorResponse("Missing required fields: activity_id, date, status", 400);
     }
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
+    const validateDateStrict = (str: string) => {
+      const regex = /^(\d{4})-(\d{2})-(\d{2})$/;
+      const match = str.match(regex);
+      if (!match) return false;
+      const yr = parseInt(match[1], 10);
+      const mo = parseInt(match[2], 10);
+      const da = parseInt(match[3], 10);
+      const d = new Date(Date.UTC(yr, mo - 1, da));
+      return d.getUTCFullYear() === yr && d.getUTCMonth() + 1 === mo && d.getUTCDate() === da;
+    };
+
+    if (!validateDateStrict(date)) {
       return errorResponse("Invalid format for date. Must be YYYY-MM-DD and represent a valid date.", 400);
     }
 
@@ -30,7 +41,10 @@ export async function POST(request: NextRequest) {
 
     const log = await createExecutionLog(activity_id, date, status, note);
     return successResponse(log, 201);
-  } catch (err) {
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "23503") {
+      return errorResponse("Activity not found.", 404);
+    }
     return errorResponse(
       err instanceof Error ? err.message : "Failed to create execution log"
     );
@@ -51,7 +65,18 @@ export async function GET(request: NextRequest) {
       return errorResponse("Missing required query parameter: date", 400);
     }
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
+    const validateDateStrict = (str: string) => {
+      const regex = /^(\d{4})-(\d{2})-(\d{2})$/;
+      const match = str.match(regex);
+      if (!match) return false;
+      const yr = parseInt(match[1], 10);
+      const mo = parseInt(match[2], 10);
+      const da = parseInt(match[3], 10);
+      const d = new Date(Date.UTC(yr, mo - 1, da));
+      return d.getUTCFullYear() === yr && d.getUTCMonth() + 1 === mo && d.getUTCDate() === da;
+    };
+
+    if (!validateDateStrict(date)) {
       return errorResponse("Invalid format for date. Must be YYYY-MM-DD and represent a valid date.", 400);
     }
 

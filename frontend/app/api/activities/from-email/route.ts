@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
       .from("activity_sources")
       .select("activity_id")
       .eq("source", "gmail")
+      .eq("source_account", emailItem.account_label)
       .eq("external_id", emailItem.gmail_message_id)
       .maybeSingle();
 
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
       .insert([{
         activity_id: activity.id,
         source: "gmail",
+        source_account: emailItem.account_label,
         external_id: emailItem.gmail_message_id
       }]);
       
@@ -89,10 +91,14 @@ export async function POST(req: NextRequest) {
         const { error: rollError } = await supabase.from("activities").delete().eq("id", activity.id);
         if (rollError) {
           console.error(`Rollback delete failed for activity ${activity.id}:`, rollError);
-          return errorResponse(`Link creation failed: ${linkError.message}. Rollback also failed: ${rollError.message}`, 500);
         }
       } catch (e: unknown) {
         console.error(`Exception during rollback of activity ${activity.id}:`, e);
+      }
+      
+      // If it's a unique constraint violation (code 23505 in postgres), return 409
+      if (linkError.code === "23505") {
+        return errorResponse("This email is already linked to an activity.", 409);
       }
       return errorResponse("Failed to link email to activity. Creation rolled back.", 500);
     }
