@@ -3,7 +3,10 @@ import { supabase } from "@/lib/database";
 import type { Activity } from "@/lib/types";
 import { encryptToken, decryptToken } from "@/lib/crypto";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/userinfo.email"
+];
 
 /**
  * Create a configured OAuth2 client.
@@ -49,17 +52,20 @@ export async function exchangeCodeForTokens(code: string) {
     expiryDate: tokens.expiry_date,
   });
 
-  // Upsert tokens — single user, so delete existing and insert new
-  await supabase.from("oauth_tokens").delete().eq("provider", "google");
+  const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+  const { data: userInfo } = await oauth2.userinfo.get();
+  const accountLabel = userInfo.email || "primary";
 
-  const { error } = await supabase.from("oauth_tokens").insert({
+  // Upsert tokens atomically based on provider + account_label
+  const { error } = await supabase.from("oauth_tokens").upsert({
     provider: "google",
+    account_label: accountLabel,
     access_token: encryptToken(tokens.access_token!),
     refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
     token_expiry: tokens.expiry_date
       ? new Date(tokens.expiry_date).toISOString()
       : null,
-  });
+  }, { onConflict: "provider,account_label" });
 
   if (error) throw error;
   return tokens;
@@ -89,22 +95,27 @@ export async function getAuthenticatedClient() {
 
   // Listen for token refresh events and update DB
   oauth2Client.on("tokens", async (newTokens) => {
-    const updateData: Record<string, string> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (newTokens.access_token) {
-      updateData.access_token = encryptToken(newTokens.access_token);
+    try {
+      const updateData: Record<string, string> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (newTokens.access_token) {
+        updateData.access_token = encryptToken(newTokens.access_token);
+      }
+      if (newTokens.refresh_token) {
+        updateData.refresh_token = encryptToken(newTokens.refresh_token);
+      }
+      if (newTokens.expiry_date) {
+        updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
+      }
+      const { error } = await supabase
+        .from("oauth_tokens")
+        .update(updateData)
+        .eq("id", data.id);
+      if (error) console.error("Failed to update Google OAuth tokens in db:", error);
+    } catch (err) {
+      console.error("Error handling Google token refresh:", err);
     }
-    if (newTokens.refresh_token) {
-      updateData.refresh_token = encryptToken(newTokens.refresh_token);
-    }
-    if (newTokens.expiry_date) {
-      updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
-    }
-    await supabase
-      .from("oauth_tokens")
-      .update(updateData)
-      .eq("id", data.id);
   });
 
   return oauth2Client;
@@ -164,14 +175,25 @@ export async function syncCalendarToActivities(
   }
 
   const events = await fetchCalendarEvents(timeMin, timeMax);
-  const activities: Activity[] = [];
+  if (!events || events.length === 0) return [];
+
+  // Batch query existing activities
+  const incomingIds = events.map(e => e.id).filter(Boolean) as string[];
+  const { data: existingActivities } = await supabase
+    .from("activities")
+    .select("id, external_id, local_override")
+    .eq("source", "google_calendar")
+    .in("external_id", incomingIds);
+
+  const existingMap = new Map((existingActivities || []).map(a => [a.external_id, a]));
+
+  const payload: Partial<Activity>[] = [];
 
   for (const event of events) {
     if (!event.id || !event.summary) continue;
 
     const startTimeStr = event.start?.dateTime || event.start?.date;
     const endTimeStr = event.end?.dateTime || event.end?.date;
-
     const startTime = startTimeStr ? new Date(startTimeStr).toISOString() : null;
     const endTime = endTimeStr ? new Date(endTimeStr).toISOString() : null;
 
@@ -183,7 +205,12 @@ export async function syncCalendarToActivities(
       duration_minutes = Math.round(diffMs / 60000);
     }
 
-    const activityData = {
+    const existing = existingMap.get(event.id);
+    if (existing && existing.local_override) {
+      continue; // Skip user-modified activities
+    }
+
+    const activityData: Partial<Activity> = {
       title: event.summary,
       description: event.description || null,
       source: "google_calendar",
@@ -201,58 +228,41 @@ export async function syncCalendarToActivities(
       }
     };
 
-    // Check if activity already exists for this event
-    const { data: existing } = await supabase
-      .from("activities")
-      .select("id, local_override")
-      .eq("source", "google_calendar")
-      .eq("external_id", event.id)
-      .single();
-
-    let savedActivity = null;
-
     if (existing) {
-      if (existing.local_override) {
-        // User has manually edited this activity — skip sync update to preserve their changes
-        const { data } = await supabase
-          .from("activities")
-          .select("*")
-          .eq("id", existing.id)
-          .single();
-        savedActivity = data as Activity;
-      } else {
-        // Update existing activity with latest calendar data
-        const { data, error } = await supabase
-          .from("activities")
-          .update(activityData)
-          .eq("id", existing.id)
-          .select()
-          .single();
-
-        if (!error && data) savedActivity = data as Activity;
-      }
-    } else {
-      // Insert new activity
-      const { data, error } = await supabase
-        .from("activities")
-        .insert(activityData)
-        .select()
-        .single();
-
-      if (!error && data) savedActivity = data as Activity;
+      activityData.id = existing.id; // required for upsert to match
     }
+    payload.push(activityData);
+  }
 
-    if (savedActivity) {
-      activities.push(savedActivity);
-      
-      // Ensure the linking table entry exists (upsert)
+  let finalActivities: Activity[] = [];
+  
+  if (payload.length > 0) {
+    // Perform bulk upsert (external_id usually implies id update via onConflict but supabase JS upsert uses PK by default or must list the ON CONFLICT constraint)
+    // Since we provide 'id' for existing ones, PK conflict works. For new ones, PK is genned or default.
+    // Wait, to safely upsert custom rows that might not have ID, we just don't pass ID for new row. Supabase will generate it. 
+    // BUT we need ON CONFLICT. `id` works as conflict target for existing, but new rows won't conflict. 
+    // Wait! Actually `upsert` in Supabase defaults to the primary key. So if `id` is present it updates, if not it inserts.
+    const { data: upserted, error } = await supabase
+      .from("activities")
+      .upsert(payload)
+      .select();
+
+    if (error) {
+      console.error("Batch upsert failed:", error);
+    } else if (upserted) {
+      finalActivities = upserted as Activity[];
+
+      // Now batch upsert activity_sources
+      const sourcesPayload = finalActivities.map(a => ({
+        activity_id: a.id,
+        source: "google_calendar",
+        source_account: a.source_account,
+        external_id: a.external_id
+      }));
+
       await supabase
         .from("activity_sources")
-        .upsert({
-          activity_id: savedActivity.id,
-          source: "google_calendar",
-          external_id: event.id
-        }, { onConflict: "source,external_id" });
+        .upsert(sourcesPayload, { onConflict: "source,source_account,external_id" });
     }
   }
 
@@ -264,5 +274,5 @@ export async function syncCalendarToActivities(
       .eq("id", token.id);
   }
 
-  return activities;
+  return finalActivities;
 }

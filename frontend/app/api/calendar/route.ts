@@ -29,6 +29,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return errorResponse("Invalid date format", 400);
+    }
+
+    const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24);
+    if (daysDiff > 31) {
+      return errorResponse("Sync date range cannot exceed 31 days to prevent memory issues", 400);
+    }
+
     const activities = await syncCalendarToActivities(start, end);
     return successResponse({
       synced_count: activities.length,

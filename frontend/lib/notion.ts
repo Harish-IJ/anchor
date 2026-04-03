@@ -180,23 +180,29 @@ export async function syncSource(sourceId: string) {
 
   // Batch upsert all pages in a single query (replaces N+1 loop)
   const now = new Date().toISOString();
-  const upsertPayload = allPages.map((page) => {
-    const pageId = page.id as string;
-    const properties = page.properties as Record<string, unknown>;
-    const url = (page.url as string) || null;
-    const title = extractTitle(properties);
+  const upsertPayload = [];
 
-    return {
-      source_id: sourceId,
-      notion_page_id: pageId,
-      title,
-      properties,
-      notion_url: url,
-      is_deleted: false, // un-delete if re-synced
-      last_synced_at: now,
-      updated_at: now,
-    };
-  });
+  for (const page of allPages) {
+    try {
+      const pageId = page.id as string;
+      const properties = page.properties as Record<string, unknown>;
+      const url = (page.url as string) || null;
+      const title = extractTitle(properties);
+
+      upsertPayload.push({
+        source_id: sourceId,
+        notion_page_id: pageId,
+        title,
+        properties,
+        notion_url: url,
+        is_deleted: false, // un-delete if re-synced
+        last_synced_at: now,
+        updated_at: now,
+      });
+    } catch (e) {
+      console.error(`Skipping malformed Notion page ${page.id}:`, e);
+    }
+  }
 
   const { data: syncedItems, error: upsertError } = await supabase
     .from("notion_items")

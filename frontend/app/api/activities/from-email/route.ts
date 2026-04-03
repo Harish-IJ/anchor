@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
       }]);
       
     if (linkError) {
-      console.error("Warning: Failed to create activity_sources link", linkError);
+      console.error("Failed to create activity_sources link. Rolling back activity.", linkError);
+      await supabase.from("activities").delete().eq("id", activity.id);
+      return errorResponse("Failed to link email to activity. Creation rolled back.", 500);
     }
 
     return successResponse<Activity>(activity, 201);
