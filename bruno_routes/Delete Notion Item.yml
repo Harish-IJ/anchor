@@ -1,0 +1,21 @@
+info:
+  name: Delete Notion Item
+  type: http
+  seq: 21
+
+http:
+  method: DELETE
+  url: http://localhost:3000/api/notion/items
+  body:
+    type: json
+    data: |-
+      {
+        "id": "ee14ec5c-5fe9-47ee-b82e-c0d4bd452bbd"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

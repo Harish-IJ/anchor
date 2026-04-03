@@ -1,0 +1,22 @@
+info:
+  name: Start Routine Run
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: http://localhost:3000/api/routines
+  body:
+    type: json
+    data: |-
+      {
+        "action": "start",
+        "routine_id": "71e3df10-64b8-48f3-801e-fdc5054c5ea2"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

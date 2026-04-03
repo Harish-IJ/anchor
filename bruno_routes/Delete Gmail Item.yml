@@ -1,0 +1,21 @@
+info:
+  name: Delete Gmail Item
+  type: http
+  seq: 28
+
+http:
+  method: DELETE
+  url: http://localhost:3000/api/gmail/items
+  body:
+    type: json
+    data: |-
+      {
+        "id": "c7b6f318-1c53-4a94-922f-645d767253cf"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

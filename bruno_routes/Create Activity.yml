@@ -1,0 +1,29 @@
+info:
+  name: Create Activity (Manual)
+  type: http
+  seq: 31
+
+http:
+  method: POST
+  url: http://localhost:3000/api/activities
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Think about system architecture",
+        "description": "Deep work session",
+        "source": "manual",
+        "duration_minutes": 60,
+        "category": "Deep Work",
+        "tags": ["architecture", "planning"]
+      }
+  auth: inherit
+
+docs: |
+  Create a standalone manual activity that didn't come from any external source.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

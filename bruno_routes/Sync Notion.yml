@@ -1,0 +1,21 @@
+info:
+  name: Sync Notion
+  type: http
+  seq: 19
+
+http:
+  method: POST
+  url: http://localhost:3000/api/notion/sync
+  body:
+    type: json
+    data: |-
+      {
+        "source_id": "417d9f17-63f0-4d8a-aad6-b1dcc23333b3"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

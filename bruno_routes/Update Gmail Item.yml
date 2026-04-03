@@ -1,0 +1,26 @@
+info:
+  name: Update Gmail Item
+  type: http
+  seq: 27
+
+http:
+  method: PATCH
+  url: http://localhost:3000/api/gmail/items
+  body:
+    type: json
+    data: |-
+      {
+        "id": "c7b6f318-1c53-4a94-922f-645d767253cf",
+        "is_task": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |
+  Also supports updating sync_query for an account:
+  { "account_label": "work", "sync_query": "from:hubspot.com OR label:Tasks" }

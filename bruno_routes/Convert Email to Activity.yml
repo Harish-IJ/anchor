@@ -1,0 +1,26 @@
+info:
+  name: Convert Email to Activity
+  type: http
+  seq: 33
+
+http:
+  method: POST
+  url: http://localhost:3000/api/activities/from-email
+  body:
+    type: json
+    data: |-
+      {
+        "email_item_id": "REPLACE_WITH_EMAIL_ITEM_ID",
+        "duration_minutes": 15
+      }
+  auth: inherit
+
+docs: |
+  Run 'List Gmail Items' first to grab a valid UUID.
+  This converts the email into an actionable Time Block in the activities table.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

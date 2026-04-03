@@ -1,0 +1,10 @@
+info:
+  name: Revert Notion CSV Import
+  type: http
+  seq: 34
+
+http:
+  method: DELETE
+  url: http://localhost:3000/api/notion/items/import
+  body: none
+  auth: none

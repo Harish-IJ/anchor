@@ -1,0 +1,25 @@
+info:
+  name: Get Active Focus Session
+  type: http
+  seq: 8
+
+http:
+  method: GET
+  url: http://localhost:3000/api/focus/active
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |
+  Returns the currently running focus session (end_time IS NULL).
+  Returns null in data if no session is active.
+  
+  Use this to restore the timer UI state after a page refresh.
+  
+  Expected responses:
+  - Active session: { "success": true, "data": { "id": "...", "start_time": "...", "activity_id": "..." } }
+  - No active session: { "success": true, "data": null }

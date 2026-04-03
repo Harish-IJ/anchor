@@ -1,0 +1,35 @@
+info:
+  name: Import Notion CSV
+  type: http
+  seq: 29
+
+http:
+  method: POST
+  url: 'http://localhost:3000/api/notion/items/import?filters={"Task participants": ["TEST_USER"], "Collaborators": ["TEST_USER"], "Task owner": ["TEST_USER"]}'
+  params:
+    - name: filters
+      value: '{"Task participants": ["TEST_USER"], "Collaborators": ["TEST_USER"], "Task owner": ["TEST_USER"]}'
+      type: query
+  body:
+    type: file
+    data:
+      - filePath: ./fixtures/mock_notion_export.zip
+        contentType: application/zip
+        selected: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |
+  Uploads a CSV file to be mapped into the `notion_items` table.
+  Simulates exporting a restricted Company Notion board and importing offline.
+
+  Instructions:
+  1. Go to the "Body" tab -> "Form Data".
+  2. Add a field named `file`, change its type to "File" 
+  3. Browse for the `mock_company_tasks.csv` or a `.zip` Notion Export.
+  4. Send request.

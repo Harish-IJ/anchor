@@ -1,0 +1,18 @@
+info:
+  name: Gmail Auth Connect (Personal)
+  type: http
+  seq: 23
+
+http:
+  method: GET
+  url: http://localhost:3000/api/auth/gmail/connect?account=personal
+  headers: {}
+  auth: inherit
+
+docs: Open this URL in a browser to connect your PERSONAL Gmail account.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: false
+  maxRedirects: 5

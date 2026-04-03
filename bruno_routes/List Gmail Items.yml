@@ -1,0 +1,24 @@
+info:
+  name: List Gmail Items
+  type: http
+  seq: 26
+
+http:
+  method: GET
+  url: http://localhost:3000/api/gmail/items?is_task=true
+  headers: {}
+  auth: inherit
+
+docs: |
+  Filter options (query params):
+    account_label=work|personal
+    is_task=true|false
+    source_app=hubspot|github|jira|other
+    include_deleted=true
+    limit=50
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
