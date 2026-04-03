@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForTokens } from "@/lib/calendar";
 
+import { cookies } from "next/headers";
+
 /**
  * GET /api/auth/google/callback?code=...
  *
@@ -13,6 +15,21 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
     const error = searchParams.get("error");
+    const state = searchParams.get("state");
+
+    // CSRF Protection
+    const cookieStore = await cookies();
+    const storedState = cookieStore.get("oauth_state")?.value;
+
+    if (!storedState || state !== storedState) {
+      return NextResponse.json(
+        { success: false, error: "Invalid or missing CSRF state token." },
+        { status: 403 }
+      );
+    }
+    
+    // Clear the state cookie
+    cookieStore.delete("oauth_state");
 
     if (error) {
       return NextResponse.json(
@@ -36,20 +53,11 @@ export async function GET(request: NextRequest) {
       message: "Google Calendar connected successfully!",
     });
   } catch (err: unknown) {
-    const errorDetails: Record<string, unknown> = {
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to exchange tokens",
-    };
-
-    // Surface Google API error details
-    if (err && typeof err === "object" && "response" in err) {
-      const gErr = err as { response?: { data?: unknown; status?: number } };
-      errorDetails.google_error = gErr.response?.data;
-      errorDetails.status_code = gErr.response?.status;
-    }
-
     console.error("OAuth callback error:", err);
-
-    return NextResponse.json(errorDetails, { status: 500 });
+    // Sanitize upstream OAuth errors: do NOT reflect details back to the user
+    return NextResponse.json(
+      { success: false, error: "Failed to authenticate with Google. Please try again." }, 
+      { status: 500 }
+    );
   }
 }

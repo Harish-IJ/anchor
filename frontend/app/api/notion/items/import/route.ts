@@ -4,8 +4,12 @@ import { successResponse, errorResponse } from "@/lib/api-utils";
 import Papa from "papaparse";
 import AdmZip from "adm-zip";
 
-const MANUAL_SOURCE_DB_ID = "csv_manual_import";
-const MANUAL_SOURCE_NAME = "Manual CSV Import";
+import crypto from "crypto";
+
+// Default fallback source, better to pass source_key in form
+const DEFAULT_MANUAL_SOURCE_DB_ID = "csv_manual_import";
+const MAX_UNZIPPED_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILES = 10;
 
 /**
  * POST /api/notion/items/import
@@ -19,6 +23,8 @@ export async function POST(req: NextRequest) {
     let isZip = false;
     let filtersJson = req.nextUrl.searchParams.get("filters");
 
+    let sourceKey = DEFAULT_MANUAL_SOURCE_DB_ID;
+
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
       const file = formData.get("file") as Blob | null;
@@ -27,9 +33,18 @@ export async function POST(req: NextRequest) {
       if (formFilters && typeof formFilters === "string") {
         filtersJson = formFilters;
       }
+      
+      const formSourceKey = formData.get("source_key");
+      if (formSourceKey && typeof formSourceKey === "string") {
+        sourceKey = formSourceKey;
+      }
 
       if (!file) {
         return errorResponse("No file uploaded", 400);
+      }
+
+      if (file.size > MAX_UNZIPPED_SIZE) {
+        return errorResponse("File too large before extraction.", 400);
       }
 
       const fileName = (file as File).name || "";
@@ -84,10 +99,23 @@ export async function POST(req: NextRequest) {
       if (csvEntries.length === 0) {
         return errorResponse("No CSV files found inside the uploaded ZIP", 400);
       }
+      
+      if (csvEntries.length > MAX_FILES) {
+        return errorResponse("Too many files in ZIP.", 400);
+      }
 
       console.log(`Extracting and parsing ${csvEntries.length} CSV file(s) from zip...`);
+      let totalExtractedSize = 0;
+
       for (const csvEntry of csvEntries) {
-        const content = csvEntry.getData().toString("utf8");
+        const contentBuffer = csvEntry.getData();
+        totalExtractedSize += contentBuffer.length;
+        
+        if (totalExtractedSize > MAX_UNZIPPED_SIZE) {
+          return errorResponse("ZIP extraction exceeded size limit.", 400);
+        }
+
+        const content = contentBuffer.toString("utf8");
         const parsed = Papa.parse(content, {
           header: true,
           skipEmptyLines: true,
@@ -121,8 +149,8 @@ export async function POST(req: NextRequest) {
       let filters: Record<string, string[]> = {};
       try {
         filters = JSON.parse(filtersJson);
-      } catch (e) {
-        return errorResponse("Invalid filters format. Must be a JSON object mapping column names to arrays of acceptable values (e.g. {\"Task owner\": [\"Harish I J\"]}).", 400);
+      } catch {
+        return errorResponse("Invalid filters format. Must be a JSON object mapping column names to arrays of acceptable values (e.g. {\"Task owner\": [\"TEST_USER\"]}).", 400);
       }
 
       if (Object.keys(filters).length > 0) {
@@ -161,7 +189,7 @@ export async function POST(req: NextRequest) {
     const { data: initialSource, error: sourceError } = await supabase
       .from("notion_sources")
       .select("id")
-      .eq("database_id", MANUAL_SOURCE_DB_ID)
+      .eq("database_id", sourceKey)
       .single();
 
     let source = initialSource;
@@ -170,8 +198,8 @@ export async function POST(req: NextRequest) {
       const { data: newSource, error: createError } = await supabase
         .from("notion_sources")
         .insert([{
-          database_id: MANUAL_SOURCE_DB_ID,
-          name: MANUAL_SOURCE_NAME,
+          database_id: sourceKey,
+          name: `Manual Import: ${sourceKey}`,
           sync_enabled: false
         }])
         .select("id")
@@ -204,8 +232,9 @@ export async function POST(req: NextRequest) {
       if (idKey && row[idKey] && row[idKey].trim().length > 0) {
         pageId = `csv-id-${row[idKey].trim()}`;
       } else {
-        // Fallback: use the raw title as part of the unique key
-        pageId = `csv-title-${title}`;
+        // Fallback: use the raw title + hash as part of the unique key to prevent collisions
+        const hash = crypto.createHash('sha256').update(JSON.stringify(row)).digest('hex').substring(0, 8);
+        pageId = `csv-fallback-${title}-${hash}`;
       }
 
       itemsToUpsert.push({
@@ -257,13 +286,15 @@ export async function POST(req: NextRequest) {
  * DELETE /api/notion/items/import
  * Reverts the manual CSV import by deleting all items associated with the manual source.
  */
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   try {
+    const sourceKey = req.nextUrl.searchParams.get("source_key") || DEFAULT_MANUAL_SOURCE_DB_ID;
+
     // 1. Find the Manual Source
     const { data: source, error: sourceError } = await supabase
       .from("notion_sources")
       .select("id")
-      .eq("database_id", MANUAL_SOURCE_DB_ID)
+      .eq("database_id", sourceKey)
       .single();
 
     if (sourceError || !source) {

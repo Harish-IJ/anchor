@@ -5,15 +5,15 @@ info:
 
 http:
   method: POST
-  url: 'http://localhost:3000/api/notion/items/import?filters={"Task participants": ["Harish I J"], "Collaborators": ["Harish I J"], "Task owner": ["Harish I J"]}'
+  url: 'http://localhost:3000/api/notion/items/import?filters={"Task participants": ["TEST_USER"], "Collaborators": ["TEST_USER"], "Task owner": ["TEST_USER"]}'
   params:
     - name: filters
-      value: '{"Task participants": ["Harish I J"], "Collaborators": ["Harish I J"], "Task owner": ["Harish I J"]}'
+      value: '{"Task participants": ["TEST_USER"], "Collaborators": ["TEST_USER"], "Task owner": ["TEST_USER"]}'
       type: query
   body:
     type: file
     data:
-      - filePath: C:\Users\haris\Downloads\4bb129d9-716a-4346-94bd-e088690e34b7_ExportBlock-5da8b7ca-0e36-4604-a28d-5a5147aaa6cb.zip
+      - filePath: ./fixtures/mock_notion_export.zip
         contentType: application/zip
         selected: true
   auth: inherit

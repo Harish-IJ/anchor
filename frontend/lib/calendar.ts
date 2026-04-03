@@ -19,12 +19,13 @@ export function createOAuth2Client() {
 /**
  * Generate the Google OAuth consent URL.
  */
-export function getAuthUrl() {
+export function getAuthUrl(state?: string) {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    state: state,
   });
 }
 
