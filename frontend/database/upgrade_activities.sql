@@ -20,7 +20,7 @@ ALTER TABLE activities
   ADD COLUMN source_account TEXT,
   ADD COLUMN source_url TEXT,
   ADD COLUMN duration_minutes INTEGER,
-  ADD COLUMN status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'completed', 'skipped')),
+  ADD COLUMN status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'completed', 'skipped')),
   ADD COLUMN completed_at TIMESTAMPTZ,
   ADD COLUMN priority INTEGER,
   ADD COLUMN tags TEXT[],
@@ -32,9 +32,10 @@ CREATE TABLE IF NOT EXISTS activity_sources (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   activity_id UUID NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
   source TEXT NOT NULL,
+  source_account TEXT,
   external_id TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(source, external_id)
+  UNIQUE(source, source_account, external_id)
 );
 
 -- 6. Add performance indexes for the new fields

@@ -6,7 +6,7 @@
 -- Ensures that no two activities can have the same external_id for a given source
 -- Note: column was renamed from external_source → source in upgrade_activities.sql
 CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_external_unique 
-ON activities (source, external_id)
+ON activities (source, source_account, external_id)
 WHERE external_id IS NOT NULL;
 
 -- 2. Activity Override Protection
@@ -27,9 +27,18 @@ $$ LANGUAGE plpgsql;
 -- Add updated_at columns (activities already has it from upgrade_activities.sql)
 ALTER TABLE execution_logs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE focus_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE notion_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE email_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'notion_items') THEN
+        ALTER TABLE notion_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    END IF;
+    
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'email_items') THEN
+        ALTER TABLE email_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    END IF;
+END $$;
 
 -- Create Triggers (activities already has one from upgrade_activities.sql)
 DO $$
