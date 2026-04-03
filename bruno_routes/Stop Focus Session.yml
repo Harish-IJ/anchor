@@ -11,7 +11,7 @@ http:
     data: |-
       {
         "action": "stop",
-        "session_id": "2d4156f9-66ff-4cbd-98cb-3e9e595b198b"
+        "session_id": "adfe796a-bc5e-48a5-ac58-0e76923a5704"
       }
   auth: inherit
 
