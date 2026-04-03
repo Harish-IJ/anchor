@@ -75,6 +75,9 @@ export async function POST(request: NextRequest) {
           400
         );
       }
+      if (typeof completed_step_index !== "number" || completed_step_index < 0) {
+        return errorResponse("completed_step_index must be a non-negative number", 400);
+      }
       const run = await completeRoutineStep(run_id, routine_id, completed_step_index);
       return successResponse(run);
     }

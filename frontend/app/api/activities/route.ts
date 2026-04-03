@@ -23,11 +23,16 @@ export async function GET(req: NextRequest) {
     if (source) query = query.eq("source", source);
     if (status) query = query.eq("status", status);
     if (date) {
-      const startOfDay = new Date(`${date}T00:00:00.000Z`).toISOString();
-      const endOfDay = new Date(`${date}T23:59:59.999Z`).toISOString();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return errorResponse("Invalid date format. Must be YYYY-MM-DD", 400);
+      }
+      const startOfDay = new Date(`${date}T00:00:00.000Z`);
+      const nextDay = new Date(startOfDay);
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      
       query = query
-        .gte("scheduled_start", startOfDay)
-        .lte("scheduled_start", endOfDay);
+        .gte("scheduled_start", startOfDay.toISOString())
+        .lt("scheduled_start", nextDay.toISOString());
     }
 
     const { data: activities, error } = await query;
@@ -53,9 +58,27 @@ export async function POST(req: NextRequest) {
       return errorResponse("Missing required fields: title, source", 400);
     }
 
+    // Explicitly allow-list fields to prevent mass assignment
+    // (e.g. overriding id, local_override, created_at)
+    const allowedData = {
+      title: body.title,
+      description: body.description,
+      source: body.source,
+      source_account: body.source_account,
+      source_url: body.source_url,
+      external_id: body.external_id,
+      scheduled_start: body.scheduled_start,
+      scheduled_end: body.scheduled_end,
+      duration_minutes: body.duration_minutes,
+      category: body.category,
+      status: body.status,
+      metadata: body.metadata,
+      local_override: true // Manually created via POST, so it overrides defaults
+    };
+
     const { data: activity, error } = await supabase
       .from("activities")
-      .insert([body])
+      .insert([allowedData])
       .select()
       .single();
 

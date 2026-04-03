@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
       if (!weekStart) {
         return errorResponse("Missing required query parameter: week_start (YYYY-MM-DD)", 400);
       }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || isNaN(Date.parse(weekStart))) {
+        return errorResponse("Invalid format for week_start. Must be YYYY-MM-DD.", 400);
+      }
       const report = await getWeeklyReport(weekStart);
       return successResponse(report);
     }
@@ -29,6 +32,9 @@ export async function GET(request: NextRequest) {
     if (type === "habits") {
       const daysParam = searchParams.get("days");
       const days = daysParam ? parseInt(daysParam, 10) : 30;
+      if (isNaN(days) || days <= 0 || days > 365) {
+        return errorResponse("Invalid days parameter. Must be between 1 and 365.", 400);
+      }
       const report = await getHabitReport(days);
       return successResponse(report);
     }

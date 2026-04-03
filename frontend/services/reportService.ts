@@ -4,9 +4,12 @@ import { supabase } from "@/lib/database";
  * Generate a weekly report: activity count, focus time, execution rates.
  */
 export async function getWeeklyReport(weekStartDate: string) {
-  const weekStart = new Date(weekStartDate);
+  const weekStart = new Date(`${weekStartDate}T00:00:00.000Z`);
+  if (isNaN(weekStart.getTime())) {
+    throw new Error("Invalid weekStartDate provided");
+  }
   const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
 
   const startISO = weekStart.toISOString();
   const endISO = weekEnd.toISOString();

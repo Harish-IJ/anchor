@@ -21,6 +21,9 @@ export async function createRoutine(
   name: string,
   steps: { name: string; duration_seconds: number; order_index: number }[]
 ) {
+  if (!steps || steps.length === 0) {
+    throw new Error("Cannot create a routine without steps.");
+  }
   const totalDuration = steps.reduce((sum, s) => sum + s.duration_seconds, 0);
 
   const { data: routine, error: routErr } = await supabase
@@ -70,6 +73,16 @@ export async function completeRoutineStep(
   routineId: string,
   completedStepIndex: number
 ) {
+  // Validate that this run actually belongs to this routine
+  const { data: runCheck, error: runCheckErr } = await supabase
+    .from("routine_runs")
+    .select("routine_id")
+    .eq("id", runId)
+    .single();
+
+  if (runCheckErr || !runCheck) throw new Error("Routine run not found.");
+  if (runCheck.routine_id !== routineId) throw new Error("Run ID does not belong to the specified Routine ID.");
+
   // Get total steps for this routine
   const { data: steps, error: stepsErr } = await supabase
     .from("routine_steps")
@@ -80,6 +93,10 @@ export async function completeRoutineStep(
   if (stepsErr) throw stepsErr;
 
   const totalSteps = (steps as RoutineStep[]).length;
+  
+  if (completedStepIndex >= totalSteps) {
+    throw new Error(`Invalid step index. Total steps: ${totalSteps}`);
+  }
   const completionPercentage =
     totalSteps > 0 ? ((completedStepIndex + 1) / totalSteps) * 100 : 0;
 
