@@ -33,8 +33,20 @@ export async function POST(request: NextRequest) {
       if (!session_id) {
         return errorResponse("Missing required field: session_id (for stop action)", 400);
       }
-      const session = await stopFocusSession(session_id);
-      return successResponse(session);
+      try {
+        const session = await stopFocusSession(session_id);
+        return successResponse(session);
+      } catch (stopErr) {
+        const msg = stopErr instanceof Error ? stopErr.message : String(stopErr);
+        // Supabase returns a 406/400 when .single() finds 0 rows
+        const isNotFound = msg.includes("0 rows") || msg.includes("PGRST116") || msg.includes("JSON object requested");
+        return errorResponse(
+          isNotFound
+            ? `Focus session not found: ${session_id}`
+            : `Failed to stop session: ${msg}`,
+          isNotFound ? 404 : 500
+        );
+      }
     }
 
     return errorResponse('Invalid action. Must be "start" or "stop"', 400);

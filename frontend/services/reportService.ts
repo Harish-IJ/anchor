@@ -11,12 +11,12 @@ export async function getWeeklyReport(weekStartDate: string) {
   const startISO = weekStart.toISOString();
   const endISO = weekEnd.toISOString();
 
-  // Fetch activities in the week
+  // Fetch activities in the week (column was renamed: start_time → scheduled_start)
   const { data: activities, error: actErr } = await supabase
     .from("activities")
     .select("*")
-    .gte("start_time", startISO)
-    .lt("start_time", endISO);
+    .gte("scheduled_start", startISO)
+    .lt("scheduled_start", endISO);
 
   if (actErr) throw actErr;
 

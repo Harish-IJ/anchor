@@ -37,7 +37,22 @@ export async function POST(req: NextRequest) {
       return errorResponse("Notion item not found", 404);
     }
 
-    // 2. Create the Activity
+    // 2. Guard: check if this Notion page is already an activity
+    const { data: existingLink } = await supabase
+      .from("activity_sources")
+      .select("activity_id")
+      .eq("source", "notion")
+      .eq("external_id", notionItem.notion_page_id)
+      .maybeSingle();
+
+    if (existingLink) {
+      return errorResponse(
+        `This Notion item is already linked to activity ${existingLink.activity_id}`,
+        409
+      );
+    }
+
+    // 3. Create the Activity
     const activityData = {
       title: notionItem.title,
       description: `Imported from Notion`,
@@ -61,7 +76,7 @@ export async function POST(req: NextRequest) {
 
     if (activityError) throw activityError;
 
-    // 3. Create the ActivitySourceLink
+    // 4. Create the ActivitySourceLink
     const { error: linkError } = await supabase
       .from("activity_sources")
       .insert([{
