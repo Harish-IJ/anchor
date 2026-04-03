@@ -16,21 +16,30 @@ async function notionFetch(
   const key = apiKey || process.env.NOTION_API_KEY;
   if (!key) throw new Error("No Notion API key provided");
 
-  const response = await fetch(`${NOTION_API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const mergedSignal = options.signal || controller.signal;
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || `Notion API error: ${response.status}`);
+  try {
+    const response = await fetch(`${NOTION_API_BASE}${endpoint}`, {
+      ...options,
+      signal: mergedSignal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || `Notion API error: ${response.status}`);
+    }
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data;
 }
 
 /**
@@ -39,11 +48,13 @@ async function notionFetch(
 export async function isNotionConfigured(): Promise<boolean> {
   if (process.env.NOTION_API_KEY) return true;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("notion_sources")
     .select("id")
     .not("api_key", "is", null)
     .limit(1);
+
+  if (error) throw error;
 
   return (data?.length ?? 0) > 0;
 }
@@ -90,7 +101,7 @@ export async function createSource(
     .insert({
       database_id: databaseId,
       name,
-      api_key: encryptToken(key),
+      api_key: apiKey ? encryptToken(apiKey) : null,
       filter: filter || null,
       sorts: sorts || null,
     })
@@ -145,19 +156,19 @@ export async function syncSource(sourceId: string) {
 
   if (srcErr || !source) throw new Error("Source not found");
 
-  // Rate Limiting & Leasing: Minimum 60 seconds between syncs
-  if (source.last_synced_at) {
-    const lastSync = new Date(source.last_synced_at).getTime();
-    if (Date.now() - lastSync < 60000) {
-      throw new Error("Rate limit exceeded. Minimum 60 seconds between Notion syncs for this source.");
-    }
-  }
-
-  // Acquire lease by updating last_synced_at immediately
-  await supabase
+  // Atomic claim of sync window
+  const sixtySecondsAgo = new Date(Date.now() - 60000).toISOString();
+  const { data: claimData, error: claimError } = await supabase
     .from("notion_sources")
     .update({ last_synced_at: new Date().toISOString() })
-    .eq("id", sourceId);
+    .eq("id", sourceId)
+    .or(`last_synced_at.is.null,last_synced_at.lt.${sixtySecondsAgo}`)
+    .select("id");
+
+  if (claimError) throw new Error("Failed to acquire sync lease: " + claimError.message);
+  if (!claimData || claimData.length === 0) {
+    throw new Error("Rate limit exceeded. Minimum 60 seconds between Notion syncs for this source.");
+  }
 
   const allPages: Array<Record<string, unknown>> = [];
   let hasMore = true;
@@ -176,7 +187,7 @@ export async function syncSource(sourceId: string) {
     const response = await notionFetch(
       `/databases/${source.database_id}/query`,
       { method: "POST", body: JSON.stringify(body) },
-      decryptToken(source.api_key)
+      source.api_key ? decryptToken(source.api_key) : undefined
     );
 
     allPages.push(...(response.results as Array<Record<string, unknown>>));
@@ -221,10 +232,14 @@ export async function syncSource(sourceId: string) {
   if (upsertError) throw upsertError;
 
   // Update source last_synced_at
-  await supabase
+  const { error: finalUpdateError } = await supabase
     .from("notion_sources")
     .update({ last_synced_at: new Date().toISOString() })
     .eq("id", sourceId);
+    
+  if (finalUpdateError) {
+    console.error("Failed to update final sync timestamp:", finalUpdateError);
+  }
 
   return syncedItems;
 }
@@ -296,7 +311,7 @@ export async function updateItem(
     await notionFetch(
       `/pages/${item.notion_page_id}`,
       { method: "PATCH", body: JSON.stringify({ properties: propertyUpdates }) },
-      decryptToken(sourceApiKey)
+      sourceApiKey ? decryptToken(sourceApiKey) : undefined
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -341,7 +356,7 @@ export async function deleteItem(itemId: string, archiveInNotion = false) {
     await notionFetch(
       `/pages/${item.notion_page_id}`,
       { method: "PATCH", body: JSON.stringify({ archived: true }) },
-      decryptToken(sourceApiKey)
+      sourceApiKey ? decryptToken(sourceApiKey) : undefined
     );
   }
 

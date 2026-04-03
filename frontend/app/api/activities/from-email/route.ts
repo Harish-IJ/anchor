@@ -19,6 +19,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email_item_id, scheduled_start, duration_minutes } = body;
 
+    const durationVal = duration_minutes ?? 15;
+    if (typeof durationVal !== "number" || !Number.isFinite(durationVal) || durationVal <= 0) {
+      return errorResponse("duration_minutes must be a positive finite integer.", 400);
+    }
+
     if (!email_item_id) {
       return errorResponse("Missing email_item_id", 400);
     }
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
       source_account: emailItem.account_label,
       source_url: `https://mail.google.com/mail/u/${emailItem.account_label}/#all/${emailItem.thread_id}`,
       scheduled_start: scheduled_start || null,
-      duration_minutes: duration_minutes || 15,
+      duration_minutes: durationVal,
       metadata: {
         sender: emailItem.sender,
         labels: emailItem.gmail_labels,
@@ -87,13 +92,23 @@ export async function POST(req: NextRequest) {
       
     if (linkError) {
       console.error("Failed to create activity_sources link. Rolling back activity.", linkError);
+      let rollbackFailed = false;
+      let rollbackMsg = "";
       try {
         const { error: rollError } = await supabase.from("activities").delete().eq("id", activity.id);
         if (rollError) {
+          rollbackFailed = true;
+          rollbackMsg = rollError.message;
           console.error(`Rollback delete failed for activity ${activity.id}:`, rollError);
         }
       } catch (e: unknown) {
+        rollbackFailed = true;
+        rollbackMsg = e instanceof Error ? e.message : "Exception";
         console.error(`Exception during rollback of activity ${activity.id}:`, e);
+      }
+      
+      if (rollbackFailed) {
+        return errorResponse(`Link creation failed: ${linkError.message}. Rollback also failed: ${rollbackMsg}`, 500);
       }
       
       // If it's a unique constraint violation (code 23505 in postgres), return 409

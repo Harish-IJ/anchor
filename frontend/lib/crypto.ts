@@ -53,11 +53,15 @@ export function encryptToken(token: string): string {
  * Decrypts a cipher string created by encryptToken
  */
 export function decryptToken(cipherString: string): string {
-  if (!cipherString || !cipherString.includes(':')) return cipherString; // Handle unencrypted / legacy
+  if (!cipherString || !cipherString.includes(':')) {
+    throw new Error("Invalid format: Not a valid encrypted token");
+  }
   
   try {
     const parts = cipherString.split(':');
-    if (parts.length !== 3) return cipherString; // Not our format
+    if (parts.length !== 3) {
+      throw new Error("Invalid format: Missing encryption parts");
+    }
     
     const [ivHex, authTagHex, encryptedHex] = parts;
     const iv = Buffer.from(ivHex, 'hex');

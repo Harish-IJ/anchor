@@ -237,10 +237,18 @@ function extractBodyText(payload: Record<string, unknown>): string | null {
 export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
   const { oauth2Client, account } = await getGmailClient(accountLabel);
 
-  if (account.last_synced_at) {
-    if (Date.now() - new Date(account.last_synced_at).getTime() < 30000) {
-      throw new Error("Rate limit exceeded. Minimum 30 seconds between Gmail syncs.");
-    }
+  // Atomic claim of sync window
+  const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
+  const { data: claimData, error: claimError } = await supabase
+    .from("gmail_accounts")
+    .update({ last_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("account_label", accountLabel)
+    .or(`last_synced_at.is.null,last_synced_at.lt.${thirtySecondsAgo}`)
+    .select("id");
+
+  if (claimError) throw new Error("Failed to acquire sync lease: " + claimError.message);
+  if (!claimData || claimData.length === 0) {
+    throw new Error("Rate limit exceeded. Minimum 30 seconds between Gmail syncs.");
   }
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
@@ -345,10 +353,14 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
   }
 
   // Update last_synced_at
-  await supabase
+  const { error: finalUpdateError } = await supabase
     .from("gmail_accounts")
     .update({ last_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("account_label", accountLabel);
+
+  if (finalUpdateError) {
+    console.error("Failed to update final sync timestamp:", finalUpdateError);
+  }
 
   return { synced: synced.length, skipped, items: synced };
 }
