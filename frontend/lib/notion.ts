@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/database";
+import { encryptToken, decryptToken } from "@/lib/crypto";
 
 const NOTION_API_BASE = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -89,7 +90,7 @@ export async function createSource(
     .insert({
       database_id: databaseId,
       name,
-      api_key: key,
+      api_key: encryptToken(key),
       filter: filter || null,
       sorts: sorts || null,
     })
@@ -144,6 +145,14 @@ export async function syncSource(sourceId: string) {
 
   if (srcErr || !source) throw new Error("Source not found");
 
+  // Rate Limiting: Minimum 60 seconds between syncs
+  if (source.last_synced_at) {
+    const lastSync = new Date(source.last_synced_at).getTime();
+    if (Date.now() - lastSync < 60000) {
+      throw new Error("Rate limit exceeded. Minimum 60 seconds between Notion syncs for this source.");
+    }
+  }
+
   const allPages: Array<Record<string, unknown>> = [];
   let hasMore = true;
   let startCursor: string | undefined = undefined;
@@ -161,7 +170,7 @@ export async function syncSource(sourceId: string) {
     const response = await notionFetch(
       `/databases/${source.database_id}/query`,
       { method: "POST", body: JSON.stringify(body) },
-      source.api_key
+      decryptToken(source.api_key)
     );
 
     allPages.push(...(response.results as Array<Record<string, unknown>>));
@@ -169,56 +178,35 @@ export async function syncSource(sourceId: string) {
     startCursor = response.next_cursor ?? undefined;
   }
 
-  // Upsert each page into notion_items
-  const syncedItems = [];
-  for (const page of allPages) {
+  // Batch upsert all pages in a single query (replaces N+1 loop)
+  const now = new Date().toISOString();
+  const upsertPayload = allPages.map((page) => {
     const pageId = page.id as string;
     const properties = page.properties as Record<string, unknown>;
     const url = (page.url as string) || null;
     const title = extractTitle(properties);
 
-    // Check if item already exists
-    const { data: existing } = await supabase
-      .from("notion_items")
-      .select("id")
-      .eq("notion_page_id", pageId)
-      .single();
+    return {
+      source_id: sourceId,
+      notion_page_id: pageId,
+      title,
+      properties,
+      notion_url: url,
+      is_deleted: false, // un-delete if re-synced
+      last_synced_at: now,
+      updated_at: now,
+    };
+  });
 
-    if (existing) {
-      // Update existing
-      const { data, error } = await supabase
-        .from("notion_items")
-        .update({
-          title,
-          properties,
-          notion_url: url,
-          last_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_deleted: false, // un-delete if re-synced
-        })
-        .eq("id", existing.id)
-        .select()
-        .single();
+  const { data: syncedItems, error: upsertError } = await supabase
+    .from("notion_items")
+    .upsert(upsertPayload, {
+      onConflict: "notion_page_id",
+      ignoreDuplicates: false, // merge/update on conflict
+    })
+    .select();
 
-      if (!error && data) syncedItems.push(data);
-    } else {
-      // Insert new
-      const { data, error } = await supabase
-        .from("notion_items")
-        .insert({
-          source_id: sourceId,
-          notion_page_id: pageId,
-          title,
-          properties,
-          notion_url: url,
-          last_synced_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (!error && data) syncedItems.push(data);
-    }
-  }
+  if (upsertError) throw upsertError;
 
   // Update source last_synced_at
   await supabase
@@ -291,7 +279,7 @@ export async function updateItem(
     await notionFetch(
       `/pages/${item.notion_page_id}`,
       { method: "PATCH", body: JSON.stringify({ properties: propertyUpdates }) },
-      sourceApiKey
+      decryptToken(sourceApiKey)
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -336,7 +324,7 @@ export async function deleteItem(itemId: string, archiveInNotion = false) {
     await notionFetch(
       `/pages/${item.notion_page_id}`,
       { method: "PATCH", body: JSON.stringify({ archived: true }) },
-      sourceApiKey
+      decryptToken(sourceApiKey)
     );
   }
 

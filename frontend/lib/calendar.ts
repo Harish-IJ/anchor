@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { supabase } from "@/lib/database";
 import type { Activity } from "@/lib/types";
+import { encryptToken, decryptToken } from "@/lib/crypto";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
 
@@ -52,8 +53,8 @@ export async function exchangeCodeForTokens(code: string) {
 
   const { error } = await supabase.from("oauth_tokens").insert({
     provider: "google",
-    access_token: tokens.access_token!,
-    refresh_token: tokens.refresh_token || null,
+    access_token: encryptToken(tokens.access_token!),
+    refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
     token_expiry: tokens.expiry_date
       ? new Date(tokens.expiry_date).toISOString()
       : null,
@@ -80,8 +81,8 @@ export async function getAuthenticatedClient() {
 
   const oauth2Client = createOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
+    access_token: decryptToken(data.access_token),
+    refresh_token: data.refresh_token ? decryptToken(data.refresh_token) : undefined,
     expiry_date: data.token_expiry ? new Date(data.token_expiry).getTime() : undefined,
   });
 
@@ -91,7 +92,10 @@ export async function getAuthenticatedClient() {
       updated_at: new Date().toISOString(),
     };
     if (newTokens.access_token) {
-      updateData.access_token = newTokens.access_token;
+      updateData.access_token = encryptToken(newTokens.access_token);
+    }
+    if (newTokens.refresh_token) {
+      updateData.refresh_token = encryptToken(newTokens.refresh_token);
     }
     if (newTokens.expiry_date) {
       updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
@@ -145,6 +149,19 @@ export async function syncCalendarToActivities(
   timeMin: string,
   timeMax: string
 ): Promise<Activity[]> {
+  // Rate Limiting: Minimum 120 seconds between Calendar syncs
+  const { data: token } = await supabase
+    .from("oauth_tokens")
+    .select("id, last_synced_at")
+    .eq("provider", "google")
+    .single();
+
+  if (token?.last_synced_at) {
+    if (Date.now() - new Date(token.last_synced_at).getTime() < 120000) {
+      throw new Error("Rate limit exceeded. Minimum 120 seconds between Calendar syncs.");
+    }
+  }
+
   const events = await fetchCalendarEvents(timeMin, timeMax);
   const activities: Activity[] = [];
 
@@ -186,7 +203,7 @@ export async function syncCalendarToActivities(
     // Check if activity already exists for this event
     const { data: existing } = await supabase
       .from("activities")
-      .select("id")
+      .select("id, local_override")
       .eq("source", "google_calendar")
       .eq("external_id", event.id)
       .single();
@@ -194,15 +211,25 @@ export async function syncCalendarToActivities(
     let savedActivity = null;
 
     if (existing) {
-      // Update existing activity
-      const { data, error } = await supabase
-        .from("activities")
-        .update(activityData)
-        .eq("id", existing.id)
-        .select()
-        .single();
+      if (existing.local_override) {
+        // User has manually edited this activity — skip sync update to preserve their changes
+        const { data } = await supabase
+          .from("activities")
+          .select("*")
+          .eq("id", existing.id)
+          .single();
+        savedActivity = data as Activity;
+      } else {
+        // Update existing activity with latest calendar data
+        const { data, error } = await supabase
+          .from("activities")
+          .update(activityData)
+          .eq("id", existing.id)
+          .select()
+          .single();
 
-      if (!error && data) savedActivity = data as Activity;
+        if (!error && data) savedActivity = data as Activity;
+      }
     } else {
       // Insert new activity
       const { data, error } = await supabase
@@ -226,6 +253,14 @@ export async function syncCalendarToActivities(
           external_id: event.id
         }, { onConflict: "source,external_id" });
     }
+  }
+
+  // Update last_synced_at for rate limiting
+  if (token) {
+    await supabase
+      .from("oauth_tokens")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("id", token.id);
   }
 
   return activities;

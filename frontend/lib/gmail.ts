@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { supabase } from "@/lib/database";
+import { encryptToken, decryptToken } from "@/lib/crypto";
 
 // Known sender → source_app mapping for auto-tagging
 const SOURCE_APP_MAP: Record<string, string> = {
@@ -85,8 +86,8 @@ export async function exchangeGmailCode(code: string, accountLabel: string) {
       {
         account_label: accountLabel,
         email_address: emailAddress,
-        access_token: tokens.access_token!,
-        refresh_token: tokens.refresh_token ?? null,
+        access_token: encryptToken(tokens.access_token!),
+        refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
         token_expiry: tokens.expiry_date
           ? new Date(tokens.expiry_date).toISOString()
           : null,
@@ -118,8 +119,8 @@ export async function getGmailClient(accountLabel: string) {
 
   const oauth2Client = createGmailOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: account.access_token,
-    refresh_token: account.refresh_token,
+    access_token: decryptToken(account.access_token),
+    refresh_token: account.refresh_token ? decryptToken(account.refresh_token) : undefined,
     expiry_date: account.token_expiry
       ? new Date(account.token_expiry).getTime()
       : undefined,
@@ -130,7 +131,12 @@ export async function getGmailClient(accountLabel: string) {
     const updateData: Record<string, string> = {
       updated_at: new Date().toISOString(),
     };
-    if (newTokens.access_token) updateData.access_token = newTokens.access_token;
+    if (newTokens.access_token) {
+      updateData.access_token = encryptToken(newTokens.access_token);
+    }
+    if (newTokens.refresh_token) {
+      updateData.refresh_token = encryptToken(newTokens.refresh_token);
+    }
     if (newTokens.expiry_date) {
       updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
     }
@@ -221,6 +227,13 @@ function extractBodyText(payload: Record<string, unknown>): string | null {
  */
 export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
   const { oauth2Client, account } = await getGmailClient(accountLabel);
+
+  if (account.last_synced_at) {
+    if (Date.now() - new Date(account.last_synced_at).getTime() < 30000) {
+      throw new Error("Rate limit exceeded. Minimum 30 seconds between Gmail syncs.");
+    }
+  }
+
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
   // List messages matching the sync query
@@ -233,25 +246,23 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
   const messages = listRes.data.messages ?? [];
   if (messages.length === 0) return { synced: 0, skipped: 0, items: [] };
 
-  const synced: unknown[] = [];
-  let skipped = 0;
+  // Batch dedup: fetch all known message IDs in one query
+  const incomingIds = messages.map((m) => m.id!).filter(Boolean);
+  const { data: existingRows } = await supabase
+    .from("email_items")
+    .select("gmail_message_id")
+    .in("gmail_message_id", incomingIds);
 
-  for (const msg of messages) {
+  const existingIds = new Set((existingRows ?? []).map((r) => r.gmail_message_id));
+  const newMessages = messages.filter((m) => m.id && !existingIds.has(m.id));
+  const skipped = messages.length - newMessages.length;
+
+  // Fetch full content only for new messages
+  const insertPayload: Record<string, unknown>[] = [];
+
+  for (const msg of newMessages) {
     if (!msg.id) continue;
 
-    // Skip if already stored
-    const { data: existing } = await supabase
-      .from("email_items")
-      .select("id")
-      .eq("gmail_message_id", msg.id)
-      .single();
-
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
-    // Fetch full message
     const msgRes = await gmail.users.messages.get({
       userId: "me",
       id: msg.id,
@@ -273,7 +284,6 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
     const threadId = message.threadId ?? null;
     const gmailLabels = message.labelIds ?? [];
 
-    // Extract body text (best-effort)
     const bodyText = message.payload
       ? extractBodyText(message.payload as Record<string, unknown>)
       : null;
@@ -281,27 +291,33 @@ export async function syncGmailAccount(accountLabel: string, maxResults = 50) {
     const sourceApp = detectSourceApp(senderEmail || rawSender);
     const isTask = detectIsTask(subject, snippet ?? "");
 
-    const { data: inserted, error } = await supabase
-      .from("email_items")
-      .insert({
-        account_id: account.id,
-        account_label: accountLabel,
-        gmail_message_id: msg.id,
-        thread_id: threadId,
-        subject,
-        sender: senderName || rawSender,
-        sender_email: senderEmail ?? null,
-        received_at: receivedAt,
-        snippet,
-        body_text: bodyText,
-        gmail_labels: gmailLabels,
-        source_app: sourceApp,
-        is_task: isTask,
-      })
-      .select()
-      .single();
+    insertPayload.push({
+      account_id: account.id,
+      account_label: accountLabel,
+      gmail_message_id: msg.id,
+      thread_id: threadId,
+      subject,
+      sender: senderName || rawSender,
+      sender_email: senderEmail ?? null,
+      received_at: receivedAt,
+      snippet,
+      body_text: bodyText,
+      gmail_labels: gmailLabels,
+      source_app: sourceApp,
+      is_task: isTask,
+    });
+  }
 
-    if (!error && inserted) synced.push(inserted);
+  // Batch insert all new emails in one query
+  let synced: unknown[] = [];
+  if (insertPayload.length > 0) {
+    const { data: inserted, error: insertError } = await supabase
+      .from("email_items")
+      .insert(insertPayload)
+      .select();
+
+    if (insertError) throw insertError;
+    synced = inserted ?? [];
   }
 
   // Update last_synced_at
