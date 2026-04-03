@@ -236,8 +236,13 @@ export async function syncAllSources() {
 
   const results = [];
   for (const source of sources || []) {
-    const items = await syncSource(source.id);
-    results.push({ source_id: source.id, synced_count: items.length });
+    try {
+      const items = await syncSource(source.id);
+      results.push({ source_id: source.id, synced_count: items.length });
+    } catch (e: unknown) {
+      console.error(`Failed to sync source ${source.id}:`, e);
+      results.push({ source_id: source.id, error: e instanceof Error ? e.message : "Unknown error" });
+    }
   }
   return results;
 }

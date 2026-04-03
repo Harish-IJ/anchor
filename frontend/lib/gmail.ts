@@ -128,22 +128,30 @@ export async function getGmailClient(accountLabel: string) {
 
   // Persist refreshed tokens automatically
   oauth2Client.on("tokens", async (newTokens) => {
-    const updateData: Record<string, string> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (newTokens.access_token) {
-      updateData.access_token = encryptToken(newTokens.access_token);
+    try {
+      const updateData: Record<string, string> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (newTokens.access_token) {
+        updateData.access_token = encryptToken(newTokens.access_token);
+      }
+      if (newTokens.refresh_token) {
+        updateData.refresh_token = encryptToken(newTokens.refresh_token);
+      }
+      if (newTokens.expiry_date) {
+        updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
+      }
+      const { error } = await supabase
+        .from("gmail_accounts")
+        .update(updateData)
+        .eq("account_label", accountLabel);
+        
+      if (error) {
+        console.error("Failed to persist refreshed Gmail tokens:", error);
+      }
+    } catch (err) {
+      console.error("Error handling Gmail token refresh:", err);
     }
-    if (newTokens.refresh_token) {
-      updateData.refresh_token = encryptToken(newTokens.refresh_token);
-    }
-    if (newTokens.expiry_date) {
-      updateData.token_expiry = new Date(newTokens.expiry_date).toISOString();
-    }
-    await supabase
-      .from("gmail_accounts")
-      .update(updateData)
-      .eq("account_label", accountLabel);
   });
 
   return { oauth2Client, account };

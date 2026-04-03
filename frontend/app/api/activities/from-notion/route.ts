@@ -87,7 +87,15 @@ export async function POST(req: NextRequest) {
       
     if (linkError) {
       console.error("Failed to create activity_sources link. Rolling back activity.", linkError);
-      await supabase.from("activities").delete().eq("id", activity.id);
+      try {
+        const { error: rollError } = await supabase.from("activities").delete().eq("id", activity.id);
+        if (rollError) {
+          console.error(`Rollback delete failed for activity ${activity.id}:`, rollError);
+          return errorResponse(`Link creation failed: ${linkError.message}. Rollback also failed: ${rollError.message}`, 500);
+        }
+      } catch (e: unknown) {
+        console.error(`Exception during rollback of activity ${activity.id}:`, e);
+      }
       return errorResponse("Failed to link notion item to activity. Creation rolled back.", 500);
     }
 

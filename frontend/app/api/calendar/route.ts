@@ -34,6 +34,9 @@ export async function GET(request: NextRequest) {
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
       return errorResponse("Invalid date format", 400);
     }
+    if (startDate > endDate) {
+      return errorResponse("Start date must be before end date", 400);
+    }
 
     const daysDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24);
     if (daysDiff > 31) {

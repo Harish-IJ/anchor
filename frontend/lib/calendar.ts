@@ -39,7 +39,9 @@ export async function exchangeCodeForTokens(code: string) {
   const oauth2Client = createOAuth2Client();
 
   console.log("Exchanging code for tokens...");
-  console.log("Redirect URI:", process.env.GOOGLE_REDIRECT_URI);
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Redirect URI:", process.env.GOOGLE_REDIRECT_URI);
+  }
 
   const { tokens } = await oauth2Client.getToken({
     code,
@@ -80,7 +82,8 @@ export async function getAuthenticatedClient() {
     .from("oauth_tokens")
     .select("*")
     .eq("provider", "google")
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (error || !data) {
     throw new Error("Google account not connected. Visit /api/auth/google to connect.");
@@ -260,9 +263,13 @@ export async function syncCalendarToActivities(
         external_id: a.external_id
       }));
 
-      await supabase
+      const { error: sourceError } = await supabase
         .from("activity_sources")
         .upsert(sourcesPayload, { onConflict: "source,source_account,external_id" });
+        
+      if (sourceError) {
+        console.error("Batch upsert for sources failed:", sourceError);
+      }
     }
   }
 

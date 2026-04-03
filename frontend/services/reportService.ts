@@ -78,7 +78,7 @@ export async function getWeeklyReport(weekStartDate: string) {
  */
 export async function getHabitReport(days: number = 30) {
   const since = new Date();
-  since.setDate(since.getDate() - days);
+  since.setUTCDate(since.getUTCDate() - days);
   const sinceISO = since.toISOString();
 
   // Fetch all routines

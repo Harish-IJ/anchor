@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
     let isZip = false;
     let filtersJson = req.nextUrl.searchParams.get("filters");
 
-    let sourceKey = DEFAULT_MANUAL_SOURCE_DB_ID;
+    let sourceKey = req.nextUrl.searchParams.get("source_key") || DEFAULT_MANUAL_SOURCE_DB_ID;
+    if (!sourceKey.startsWith("manual_")) sourceKey = `manual_${sourceKey}`;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
       const formSourceKey = formData.get("source_key");
       if (formSourceKey && typeof formSourceKey === "string") {
         sourceKey = formSourceKey;
+        if (!sourceKey.startsWith("manual_")) sourceKey = `manual_${sourceKey}`;
       }
 
       if (!file) {
@@ -59,6 +61,10 @@ export async function POST(req: NextRequest) {
     } else {
       // Handle raw body upload (File / Binary in Bruno)
       console.log("Processing raw body upload...");
+      const contentLength = req.headers.get("content-length");
+      if (contentLength && parseInt(contentLength) > MAX_UNZIPPED_SIZE) {
+        return errorResponse("Payload exceeds size limit.", 413);
+      }
       const arrayBuffer = await req.arrayBuffer();
       
       // We can infer if it's a ZIP by checking the magic number or if content-type says zip
@@ -89,6 +95,7 @@ export async function POST(req: NextRequest) {
       if (csvEntries.length === 0) {
         const innerZipEntry = zipEntries.find(e => e.entryName.endsWith(".zip"));
         if (innerZipEntry) {
+          if (innerZipEntry.header.size > MAX_UNZIPPED_SIZE) return errorResponse("Inner ZIP too large", 400);
           console.log(`Found nested ZIP file (${innerZipEntry.entryName}), extracting inner contents...`);
           const innerZipBuffer = innerZipEntry.getData();
           const innerZip = new AdmZip(innerZipBuffer);
@@ -108,6 +115,7 @@ export async function POST(req: NextRequest) {
       let totalExtractedSize = 0;
 
       for (const csvEntry of csvEntries) {
+        if (csvEntry.header.size > MAX_UNZIPPED_SIZE) return errorResponse("CSV entry too large", 400);
         const contentBuffer = csvEntry.getData();
         totalExtractedSize += contentBuffer.length;
         
@@ -190,11 +198,15 @@ export async function POST(req: NextRequest) {
       .from("notion_sources")
       .select("id")
       .eq("database_id", sourceKey)
-      .single();
+      .maybeSingle();
+
+    if (sourceError) {
+      throw sourceError;
+    }
 
     let source = initialSource;
 
-    if (!source || sourceError) {
+    if (!source) {
       const { data: newSource, error: createError } = await supabase
         .from("notion_sources")
         .insert([{
@@ -288,14 +300,15 @@ export async function POST(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const sourceKey = req.nextUrl.searchParams.get("source_key") || DEFAULT_MANUAL_SOURCE_DB_ID;
+    let sourceKey = req.nextUrl.searchParams.get("source_key") || DEFAULT_MANUAL_SOURCE_DB_ID;
+    if (!sourceKey.startsWith("manual_")) sourceKey = `manual_${sourceKey}`;
 
     // 1. Find the Manual Source
     const { data: source, error: sourceError } = await supabase
       .from("notion_sources")
       .select("id")
       .eq("database_id", sourceKey)
-      .single();
+      .maybeSingle();
 
     if (sourceError || !source) {
       return successResponse({ message: "No manual import source found to revert." });

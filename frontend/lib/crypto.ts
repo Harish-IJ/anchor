@@ -7,18 +7,26 @@ import crypto from 'crypto';
 // The encryption key must be exactly 32 bytes (256 bits)
 // Loaded from .env.local: ENCRYPTION_KEY (hex, base64, or 32-char string)
 const ALGORITHM = 'aes-256-gcm';
-const RAW_KEY = process.env.ENCRYPTION_KEY || 'default_32_character_secret_key!'; // Fallback ONLY for dev if unconfigured
+const RAW_KEY = process.env.ENCRYPTION_KEY;
+
+if (!RAW_KEY) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ENCRYPTION_KEY environment variable is required in production');
+  }
+  console.warn('WARNING: Using default encryption key. Set ENCRYPTION_KEY for production.');
+}
+const EFFECTIVE_KEY = RAW_KEY || 'default_32_character_secret_key!';
 
 // Ensure key is exactly 32 bytes
 let ENCRYPTION_KEY_BUFFER: Buffer;
-if (Buffer.from(RAW_KEY, 'hex').length === 32) {
-  ENCRYPTION_KEY_BUFFER = Buffer.from(RAW_KEY, 'hex');
-} else if (Buffer.from(RAW_KEY, 'base64').length === 32) {
-  ENCRYPTION_KEY_BUFFER = Buffer.from(RAW_KEY, 'base64');
+if (Buffer.from(EFFECTIVE_KEY, 'hex').length === 32) {
+  ENCRYPTION_KEY_BUFFER = Buffer.from(EFFECTIVE_KEY, 'hex');
+} else if (Buffer.from(EFFECTIVE_KEY, 'base64').length === 32) {
+  ENCRYPTION_KEY_BUFFER = Buffer.from(EFFECTIVE_KEY, 'base64');
 } else {
   // Pad or truncate string to 32 bytes
   ENCRYPTION_KEY_BUFFER = Buffer.alloc(32);
-  ENCRYPTION_KEY_BUFFER.write(RAW_KEY, 0, 32, 'utf-8');
+  ENCRYPTION_KEY_BUFFER.write(EFFECTIVE_KEY, 0, 32, 'utf-8');
 }
 
 /**
